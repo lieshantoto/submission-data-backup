@@ -59,15 +59,15 @@ def extract_test_properties(name, ntc_id=None):
         properties['OS Name'] = os_name_match.group(1).strip()
     
     # Extract Tribe Name (e.g., Financial Service)
-    # Look for the last ' - ' before the parenthesis, and extract the value before it
-    tribe_name_match = re.search(r'- ([^-()]+) \([^)]*\)$', name)
-    if tribe_name_match:
-        properties['Tribe Name'] = tribe_name_match.group(1).strip()
+    # Use the same logic as extract_tribe_name_from_archive()
+    match = re.search(r'- OS [^-]+ - ([^-]+)', name)
+    if match:
+        properties['Tribe Name'] = match.group(1).strip()
     else:
-        # fallback to previous pattern
-        tribe_name_match2 = re.search(r'- ([A-Za-z]+(?: [A-Za-z&]+)*) \(', name)
-        if tribe_name_match2:
-            properties['Tribe Name'] = tribe_name_match2.group(1)
+        # fallback: try to get before last '('
+        match2 = re.search(r'- ([^-]+) \(', name)
+        if match2:
+            properties['Tribe Name'] = match2.group(1).strip()
     
     # Extract Test Environment and Platform (e.g., SIT, Android) - allow multi-word and flexible spacing
     env_platform_match = re.search(r'\(([^,]+),\s*([^)]+)\)', name)
