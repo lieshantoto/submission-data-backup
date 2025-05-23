@@ -13,6 +13,7 @@ import urllib.parse
 import logging
 from datetime import datetime
 from threading import Thread
+import subprocess
 
 # Configure logging
 logging.basicConfig(
@@ -493,6 +494,10 @@ HTML_TEMPLATE = """
         #file-input {
             display: none;
         }
+        .md-extract-section { margin-top: 30px; padding: 20px; background: #f9f9f9; border-radius: 8px; border: 1px solid #eee; }
+        .md-extract-btn { background: #2196F3; color: #fff; border: none; border-radius: 4px; padding: 10px 20px; font-size: 16px; cursor: pointer; margin-left: 10px; }
+        .md-extract-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .md-extract-status { margin-top: 10px; font-size: 14px; color: #333; }
     </style>
 </head>
 <body>
@@ -533,6 +538,14 @@ HTML_TEMPLATE = """
                 <div id="download-status" class="download-status"></div>
             </div>
         </div>
+
+        <div class="md-extract-section">
+            <label for="md-folder-path2">Extract from MD Folder</label>
+            <input type="text" id="md-folder-path2" placeholder="No folder selected" readonly>
+            <button type="button" id="browse-md-folder-btn2" class="folder-btn">Browse MD Folder</button>
+            <button type="button" id="extract-md-btn" class="md-extract-btn" disabled>Extract MD Data</button>
+            <div id="md-extract-status" class="md-extract-status"></div>
+        </div>
     </div>
 
     <footer>
@@ -559,6 +572,10 @@ HTML_TEMPLATE = """
         const progressBar = document.getElementById('progress-bar');
         const downloadStatus = document.getElementById('download-status');
         const options = document.querySelectorAll('.option');
+        const mdFolderPathInput2 = document.getElementById('md-folder-path2');
+        const browseMdFolderBtn2 = document.getElementById('browse-md-folder-btn2');
+        const extractMdBtn = document.getElementById('extract-md-btn');
+        const mdExtractStatus = document.getElementById('md-extract-status');
         
         // Ensure download elements are hidden at startup
         downloadContainer.classList.add('hide');
@@ -714,6 +731,47 @@ HTML_TEMPLATE = """
             });
         });
         
+        // Event listener for browse MD folder button
+        browseMdFolderBtn2.addEventListener('click', function() {
+            fetch('/browse-md-folder')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.folderPath) {
+                        mdFolderPathInput2.value = data.folderPath;
+                        extractMdBtn.disabled = false;
+                    } else {
+                        mdFolderPathInput2.value = '';
+                        extractMdBtn.disabled = true;
+                    }
+                });
+        });
+        
+        // Event listener for extract MD data button
+        extractMdBtn.addEventListener('click', function() {
+            const folder = mdFolderPathInput2.value;
+            if (!folder) return;
+            extractMdBtn.disabled = true;
+            mdExtractStatus.textContent = 'Extracting...';
+            fetch('/extract-md-folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    mdExtractStatus.textContent = 'Extraction complete! ' + (data.output || '');
+                } else {
+                    mdExtractStatus.textContent = 'Extraction failed: ' + (data.error || 'Unknown error');
+                }
+                extractMdBtn.disabled = false;
+            })
+            .catch(e => {
+                mdExtractStatus.textContent = 'Extraction failed: ' + e;
+                extractMdBtn.disabled = false;
+            });
+        });
+        
         function resetFileSelection() {
             selectedFile = null;
             fileDisplay.value = '';
@@ -781,51 +839,30 @@ class DataCleanerHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'text/html')
             self.end_headers()
             self.wfile.write(HTML_TEMPLATE.encode())
-        elif self.path.startswith('/download/'):
-            # Extract filename from path
-            filename = self.path.split('/download/')[1]
-            filename = urllib.parse.unquote(filename)
-            
-            logger.info(f"Download requested for file: {filename}")
-            
-            if os.path.exists(filename):
-                try:
-                    # Read the file content
-                    with open(filename, 'rb') as f:
-                        file_content = f.read()
-                    
-                    # Get the file size
-                    file_size = len(file_content)
-                    logger.info(f"Sending file {filename} ({file_size} bytes)")
-                    
-                    # Send the file to the client
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/csv')
-                    self.send_header('Content-Disposition', f'attachment; filename="{os.path.basename(filename)}"')
-                    self.send_header('Content-Length', str(file_size))
-                    self.end_headers()
-                    
-                    # Write the file in chunks to support progress indication
-                    chunk_size = 8192
-                    for i in range(0, file_size, chunk_size):
-                        end = min(i + chunk_size, file_size)
-                        self.wfile.write(file_content[i:end])
-                        
-                except Exception as e:
-                    # Log the error but don't expose details to the client
-                    print(f"Error serving file {filename}: {str(e)}")
-                    self.send_response(500)
-                    self.send_header('Content-type', 'text/plain')
-                    self.end_headers()
-                    self.wfile.write(b"Internal server error occurred while downloading the file")
-            else:
-                self.send_response(404)
-                self.send_header('Content-type', 'text/plain')
+        elif self.path == '/browse-md-folder':
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw()
+                folder_path = filedialog.askdirectory(title="Select Folder Containing MD Files")
+                root.destroy()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(b"File not found")
+                if folder_path:
+                    self.wfile.write(json.dumps({'folderPath': folder_path}).encode())
+                else:
+                    self.wfile.write(json.dumps({'error': 'No folder selected or dialog cancelled.'}).encode())
+            except Exception as e:
+                logger.error(f"Error opening folder dialog: {e}", exc_info=True)
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode())
         else:
             super().do_GET()
-            
+
     def do_POST(self):
         if self.path == '/process':
             content_length = int(self.headers['Content-Length'])
@@ -866,6 +903,36 @@ class DataCleanerHandler(http.server.SimpleHTTPRequestHandler):
             # Clean up the temporary file
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
+        elif self.path == '/extract-md-folder':
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode())
+            folder = data.get('folder')
+            if not folder or not os.path.isdir(folder):
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'Invalid or missing folder path.'}).encode())
+                return
+            try:
+                result = subprocess.run([
+                    sys.executable, 'extract_md_history.py', folder
+                ], capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': True, 'output': result.stdout}).encode())
+                else:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': result.stderr}).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
         else:
             self.send_response(404)
             self.end_headers()
