@@ -65,7 +65,7 @@ def extract_test_properties(name, ntc_id=None):
         properties['Tribe Name'] = match.group(1).strip()
     else:
         # fallback: try to get before last '('
-        match2 = re.search(r'- ([^-]+) \(', name)
+        match2 = re.search(r'-\s*([^-()]+)\s*\(', archive_val)
         if match2:
             properties['Tribe Name'] = match2.group(1).strip()
     

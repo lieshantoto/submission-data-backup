@@ -128,11 +128,18 @@ After running either script, you can import the cleaned CSV back into your Notio
 
 ## Requirements
 
-- Python 3.6+
-- Standard libraries only:
-  - For web UI: http.server, webbrowser (included in standard Python)
-  - For tkinter UI: tkinter (included in standard Python distribution)
-- No external dependencies required
+- Python 3.8 or higher (recommended: Python 3.10+)
+- Required Python packages:
+  - `python-dateutil` (for date normalization)
+  - `tkinter` (for GUI, included in most standard Python distributions)
+  - Standard libraries: `http.server`, `webbrowser`, `csv`, `os`, `re`, `datetime`, `shutil`, `sys`, `glob`, `json`, `io`
+- To install the only required external package, run:
+  ```bash
+  pip install python-dateutil
+  ```
+- No other external dependencies required
+
+---
 
 ## Customization
 
