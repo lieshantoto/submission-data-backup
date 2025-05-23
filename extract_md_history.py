@@ -126,7 +126,7 @@ def parse_md_entry_block(entry, is_main, main_name, main_url, main_id, source_fi
             data['Type Testing'] = table_match.group(3).strip()
             data['Description'] = table_match.group(4).strip()
         # fallback for log name
-        data['Name'] = f"{main_name} (Log)"
+        data['Name'] = f"{main_name}"
         data['Archive Testcase URL'] = main_url
         data['ID'] = main_id
         archive_val = main_name  # fallback, not used for log
