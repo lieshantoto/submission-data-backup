@@ -246,10 +246,34 @@ def clean_description(desc):
 
 # Check if input file exists
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
+    # Parse command line arguments for optional flags
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Process Notion test case data from CSV files')
+    parser.add_argument('input_file', nargs='?', help='Input CSV file path')
+    parser.add_argument('--separate-csv', action='store_true', help='Create separate CSV files for each OS')
+    parser.add_argument('--separate-txt', action='store_true', help='Create separate TXT files for each OS')
+    parser.add_argument('--no-txt', action='store_true', help='Skip TXT file generation completely')
+    
+    args = parser.parse_args()
+    
+    if args.input_file:
+        input_file = args.input_file
+    elif len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
+        # Legacy support: first non-flag argument is input file
         input_file = sys.argv[1]
     else:
-        input_file = None
+        # Use GUI file dialog
+        root = tk.Tk()
+        root.withdraw()
+        input_file = filedialog.askopenfilename(
+            title="Select CSV file to process",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        root.destroy()
+        if not input_file:
+            print("No file selected.")
+            sys.exit(1)
     if not input_file or not os.path.exists(input_file):
         print(f"Error: Input file '{input_file}' not found!")
         sys.exit(1)
@@ -373,11 +397,52 @@ if __name__ == "__main__":
             writer = csv.writer(outfile)
             writer.writerows(cleaned_rows)
         
-        # Create TXT output files with human-readable format
-        txt_output_file = output_file.replace('.csv', '.txt')
-        txt_output_file_with_date = output_file_with_date.replace('.csv', '.txt')
-        
-        def write_txt_output(filename, rows):
+        # Create separate CSV files for each OS if requested
+        def write_separate_os_csv_files(rows, base_filename, base_filename_dated):
+            headers = rows[0]
+            data_rows = rows[1:]
+            
+            # Find OS Name column index
+            os_name_idx = None
+            for i, header in enumerate(headers):
+                if header == 'OS Name':
+                    os_name_idx = i
+                    break
+            
+            # Group records by OS Name
+            os_groups = {}
+            for row in data_rows:
+                os_name = row[os_name_idx] if os_name_idx and os_name_idx < len(row) and row[os_name_idx] else 'Unknown_OS'
+                if os_name not in os_groups:
+                    os_groups[os_name] = []
+                os_groups[os_name].append(row)
+            
+            # Create individual CSV files for each OS
+            csv_files_created = []
+            for os_name, records in os_groups.items():
+                # Create safe filename (replace spaces and special chars)
+                safe_os_name = os_name.replace(' ', '_').replace('&', 'and').replace('+', 'Plus')
+                
+                # Current version
+                os_csv_file = base_filename.replace('.csv', f'_OS_{safe_os_name}.csv')
+                csv_files_created.append(os_csv_file)
+                with open(os_csv_file, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(headers)  # Write headers
+                    writer.writerows(records)  # Write records
+                
+                # Date-stamped version
+                os_csv_file_dated = base_filename_dated.replace('.csv', f'_OS_{safe_os_name}.csv')
+                csv_files_created.append(os_csv_file_dated)
+                with open(os_csv_file_dated, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(headers)  # Write headers
+                    writer.writerows(records)  # Write records
+            
+            return csv_files_created
+
+        # Function for combined TXT output (original behavior)
+        def write_combined_txt_output(filename, rows):
             with open(filename, 'w', encoding='utf-8') as txtfile:
                 txtfile.write("=" * 80 + "\n")
                 txtfile.write("NOTION TEST CASE DATA PROCESSING SUMMARY\n")
@@ -387,43 +452,209 @@ if __name__ == "__main__":
                 txtfile.write(f"Source: {input_file}\n\n")
                 
                 # Skip header row for processing
+                headers = rows[0]
                 data_rows = rows[1:]
                 
-                for i, row in enumerate(data_rows, 1):
-                    txtfile.write(f"Record #{i}\n")
-                    txtfile.write("-" * 40 + "\n")
+                # Find OS Name column index
+                os_name_idx = None
+                for i, header in enumerate(headers):
+                    if header == 'OS Name':
+                        os_name_idx = i
+                        break
+                
+                # Group records by OS Name for summary
+                os_groups = {}
+                for row in data_rows:
+                    os_name = row[os_name_idx] if os_name_idx and os_name_idx < len(row) and row[os_name_idx] else 'Unknown OS'
+                    if os_name not in os_groups:
+                        os_groups[os_name] = []
+                    os_groups[os_name].append(row)
+                
+                # Write summary statistics
+                txtfile.write("OS DISTRIBUTION:\n")
+                txtfile.write("-" * 40 + "\n")
+                for os_name, records in sorted(os_groups.items()):
+                    txtfile.write(f"{os_name}: {len(records)} records\n")
+                txtfile.write("\n" + "=" * 80 + "\n\n")
+                
+                # Process each OS group
+                for os_name in sorted(os_groups.keys()):
+                    records = os_groups[os_name]
+                    txtfile.write(f"OS: {os_name}\n")
+                    txtfile.write("=" * 60 + "\n")
+                    txtfile.write(f"Records: {len(records)}\n\n")
                     
-                    # Map columns to headers
-                    headers = rows[0]  # First row contains headers
+                    for i, row in enumerate(records, 1):
+                        txtfile.write(f"Record #{i}\n")
+                        txtfile.write("-" * 30 + "\n")
+                        
+                        # Key information
+                        key_fields = [
+                            ('ID', 0), ('Name', 1), ('Status', 4), ('App Version', -8), ('Test Case ID', -1), ('Error Summary', -2)
+                        ]
+                        
+                        for field_name, idx in key_fields:
+                            if idx < 0:  # Negative indices for extracted fields
+                                actual_idx = len(row) + idx
+                            else:
+                                actual_idx = idx
+                            
+                            if actual_idx < len(row) and row[actual_idx]:
+                                txtfile.write(f"{field_name}: {row[actual_idx]}\n")
+                        
+                        # Technical details
+                        tech_fields = [
+                            ('Tribe Short', -7), ('Squad Name', -6), ('Platform', -3), ('Test Environment', -4)
+                        ]
+                        
+                        txtfile.write("\nTechnical Details:\n")
+                        for field_name, idx in tech_fields:
+                            actual_idx = len(row) + idx if idx < 0 else idx
+                            if actual_idx < len(row) and row[actual_idx]:
+                                txtfile.write(f"  {field_name}: {row[actual_idx]}\n")
+                        
+                        # URL if available
+                        if len(row) > 2 and row[2]:
+                            txtfile.write(f"\nArchive URL: {row[2]}\n")
+                        
+                        # Description preview (first 200 chars)
+                        if len(row) > 5 and row[5]:
+                            desc_preview = row[5][:200].replace('\n', ' ').strip()
+                            if len(row[5]) > 200:
+                                desc_preview += "..."
+                            txtfile.write(f"\nDescription: {desc_preview}\n")
+                        
+                        txtfile.write("\n" + "-" * 60 + "\n\n")
                     
-                    # Key information
-                    for j, header in enumerate(headers):
-                        if j < len(row) and row[j]:
-                            if header in ['ID', 'Name', 'Status', 'App Version', 'Test Case ID', 'Error Summary']:
-                                txtfile.write(f"{header}: {row[j]}\n")
+                    txtfile.write("=" * 80 + "\n\n")
+
+        # Define function for separate TXT output files for each OS
+        def write_separate_os_txt_files(rows, base_filename):
+            # Skip header row for processing
+            headers = rows[0]
+            data_rows = rows[1:]
+            
+            # Find OS Name column index
+            os_name_idx = None
+            for i, header in enumerate(headers):
+                if header == 'OS Name':
+                    os_name_idx = i
+                    break
+            
+            # Group records by OS Name
+            os_groups = {}
+            for row in data_rows:
+                os_name = row[os_name_idx] if os_name_idx and os_name_idx < len(row) and row[os_name_idx] else 'Unknown_OS'
+                if os_name not in os_groups:
+                    os_groups[os_name] = []
+                os_groups[os_name].append(row)
+            
+            # Create summary file with OS distribution
+            summary_file = base_filename.replace('.csv', '_summary.txt')
+            with open(summary_file, 'w', encoding='utf-8') as summary_txtfile:
+                summary_txtfile.write("=" * 80 + "\n")
+                summary_txtfile.write("NOTION TEST CASE DATA PROCESSING SUMMARY\n")
+                summary_txtfile.write("=" * 80 + "\n\n")
+                summary_txtfile.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                summary_txtfile.write(f"Total Records: {len(rows)-1}\n")
+                summary_txtfile.write(f"Source: {input_file}\n\n")
+                
+                summary_txtfile.write("OS DISTRIBUTION:\n")
+                summary_txtfile.write("-" * 40 + "\n")
+                for os_name, records in sorted(os_groups.items()):
+                    summary_txtfile.write(f"{os_name}: {len(records)} records\n")
+                summary_txtfile.write(f"\nTotal OS Categories: {len(os_groups)}\n")
+                summary_txtfile.write(f"Files Generated:\n")
+                for os_name in sorted(os_groups.keys()):
+                    safe_os_name = os_name.replace(' ', '_').replace('&', 'and').replace('+', 'Plus')
+                    filename = base_filename.replace('.csv', f'_OS_{safe_os_name}.txt')
+                    summary_txtfile.write(f"  - {filename}\n")
+            
+            # Create individual files for each OS
+            txt_files_created = []
+            for os_name, records in os_groups.items():
+                # Create safe filename (replace spaces and special chars)
+                safe_os_name = os_name.replace(' ', '_').replace('&', 'and').replace('+', 'Plus')
+                os_txt_file = base_filename.replace('.csv', f'_OS_{safe_os_name}.txt')
+                txt_files_created.append(os_txt_file)
+                
+                with open(os_txt_file, 'w', encoding='utf-8') as txtfile:
+                    txtfile.write("=" * 80 + "\n")
+                    txtfile.write(f"NOTION TEST CASE DATA - OS: {os_name}\n")
+                    txtfile.write("=" * 80 + "\n\n")
+                    txtfile.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    txtfile.write(f"OS: {os_name}\n")
+                    txtfile.write(f"Records: {len(records)}\n")
+                    txtfile.write(f"Source: {input_file}\n\n")
+                    txtfile.write("=" * 80 + "\n\n")
                     
-                    # Technical details
-                    txtfile.write("\nTechnical Details:\n")
-                    for j, header in enumerate(headers):
-                        if j < len(row) and row[j]:
-                            if header in ['Tribe Short', 'Squad Name', 'OS Name', 'Platform', 'Test Environment']:
-                                txtfile.write(f"  {header}: {row[j]}\n")
-                    
-                    # URL if available
-                    if len(row) > 2 and row[2]:
-                        txtfile.write(f"\nArchive URL: {row[2]}\n")
-                    
-                    # Description preview (first 200 chars)
-                    if len(row) > 5 and row[5]:
-                        desc_preview = row[5][:200].replace('\n', ' ').strip()
-                        if len(row[5]) > 200:
-                            desc_preview += "..."
-                        txtfile.write(f"\nDescription: {desc_preview}\n")
-                    
-                    txtfile.write("\n" + "=" * 80 + "\n\n")
+                    for i, row in enumerate(records, 1):
+                        txtfile.write(f"Record #{i}\n")
+                        txtfile.write("-" * 30 + "\n")
+                        
+                        # Key information
+                        key_fields = [
+                            ('ID', 0), ('Name', 1), ('Status', 4), ('App Version', -8), ('Test Case ID', -1), ('Error Summary', -2)
+                        ]
+                        
+                        for field_name, idx in key_fields:
+                            if idx < 0:  # Negative indices for extracted fields
+                                actual_idx = len(row) + idx
+                            else:
+                                actual_idx = idx
+                            
+                            if actual_idx < len(row) and row[actual_idx]:
+                                txtfile.write(f"{field_name}: {row[actual_idx]}\n")
+                        
+                        # Technical details
+                        tech_fields = [
+                            ('Tribe Short', -7), ('Squad Name', -6), ('Platform', -3), ('Test Environment', -4)
+                        ]
+                        
+                        txtfile.write("\nTechnical Details:\n")
+                        for field_name, idx in tech_fields:
+                            actual_idx = len(row) + idx if idx < 0 else idx
+                            if actual_idx < len(row) and row[actual_idx]:
+                                txtfile.write(f"  {field_name}: {row[actual_idx]}\n")
+                        
+                        # URL if available
+                        if len(row) > 2 and row[2]:
+                            txtfile.write(f"\nArchive URL: {row[2]}\n")
+                        
+                        # Description preview (first 200 chars)
+                        if len(row) > 5 and row[5]:
+                            desc_preview = row[5][:200].replace('\n', ' ').strip()
+                            if len(row[5]) > 200:
+                                desc_preview += "..."
+                            txtfile.write(f"\nDescription: {desc_preview}\n")
+                        
+                        txtfile.write("\n" + "-" * 60 + "\n\n")
+            
+            return txt_files_created, summary_file
         
-        write_txt_output(txt_output_file, cleaned_rows)
-        write_txt_output(txt_output_file_with_date, cleaned_rows)
+        # Create separate CSV files for each OS if requested
+        csv_files_created = []
+        if args.separate_csv:
+            csv_files_created = write_separate_os_csv_files(cleaned_rows, output_file, output_file_with_date)
+        
+        # Handle TXT file generation based on flags
+        txt_files_created = []
+        summary_files = []
+        
+        if not args.no_txt:
+            if args.separate_txt:
+                # Generate separate TXT files for each OS
+                txt_files, summary_file = write_separate_os_txt_files(cleaned_rows, output_file)
+                txt_files_dated, summary_file_dated = write_separate_os_txt_files(cleaned_rows, output_file_with_date)
+                txt_files_created = txt_files
+                summary_files = [summary_file, summary_file_dated]
+            else:
+                # Generate single combined TXT file
+                txt_output_file = output_file.replace('.csv', '.txt')
+                txt_output_file_with_date = output_file_with_date.replace('.csv', '.txt')
+                write_combined_txt_output(txt_output_file, cleaned_rows)
+                write_combined_txt_output(txt_output_file_with_date, cleaned_rows)
+                txt_files_created = [txt_output_file, txt_output_file_with_date]
         
         # Count unique test case IDs for informational purposes
         unique_ids = set()
@@ -434,7 +665,28 @@ if __name__ == "__main__":
         print(f"Data cleaned successfully.")
         print(f"Total records: {len(cleaned_rows)-1}, Unique test cases: {len(unique_ids)}")
         print(f"Output saved to {output_file} and {output_file_with_date}")
-        print(f"TXT output saved to {txt_output_file} and {txt_output_file_with_date}")
+        
+        # Print CSV file details if separate CSV files were created
+        if args.separate_csv:
+            unique_csv_files = len(csv_files_created) // 2  # Divide by 2 because we create both current and dated versions
+            print(f"CSV files created: {unique_csv_files} OS-specific files")
+            for csv_file in csv_files_created[:3]:  # Show first 3 files
+                if not csv_file.endswith(f"{datetime.now().strftime('%Y%m%d')}.csv"):  # Don't show dated versions in log
+                    print(f"  - {csv_file}")
+            if unique_csv_files > 3:
+                print(f"  ... and {unique_csv_files-3} more OS-specific CSV files")
+        
+        # Print TXT file details if TXT files were generated
+        if not args.no_txt:
+            if args.separate_txt:
+                print(f"TXT files created: {len(txt_files_created)} OS-specific files + summary")
+                print(f"Summary files: {summary_files[0]} and {summary_files[1]}")
+                for txt_file in txt_files_created[:3]:  # Show first 3 files
+                    print(f"  - {txt_file}")
+                if len(txt_files_created) > 3:
+                    print(f"  ... and {len(txt_files_created)-3} more OS-specific TXT files")
+            else:
+                print(f"TXT files created: {txt_files_created[0]} and {txt_files_created[1]}")
         print(f"Original file size: {os.path.getsize(input_file):,} bytes, New file size: {os.path.getsize(output_file):,} bytes")
         print(f"Size change: {((os.path.getsize(output_file)/os.path.getsize(input_file))*100)-100:.2f}%")
 
