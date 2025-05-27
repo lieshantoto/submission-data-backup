@@ -11,7 +11,7 @@ from datetime import datetime
 # Define new headers for extracted properties
 NEW_HEADERS = [
     'App Version', 'Tribe Short', 'Squad Name', 'OS Name', 
-    'Tribe Name', 'Test Environment', 'Platform', 'Test Case ID'
+    'Tribe Name', 'Test Environment', 'Platform', 'Test Case ID', 'Error Summary'
 ]
 
 # Function to extract URL from Archive Testcase field
@@ -25,10 +25,137 @@ def extract_url(archive_testcase):
         return url_match.group(1)
     return ""
 
+# Function to extract a short error summary from the description
+def extract_error_summary(desc):
+    if not desc:
+        return ""
+    
+    # Convert to lowercase for easier matching
+    desc_lower = desc.lower()
+    
+    # Look for specific WebDriver element errors with selectors
+    element_selector_match = re.search(r'element \("([^"]+)"\) still not displayed after \d+ms', desc)
+    if element_selector_match:
+        selector = element_selector_match.group(1)
+        # Extract meaningful part of selector
+        if 'sdet-' in selector:
+            element_name = selector.replace('~sdet-', '').replace('sdet-', '')
+        elif '~' in selector:
+            element_name = selector.replace('~', '')
+        else:
+            element_name = selector[:20]
+        return f"Element '{element_name}' not displayed"
+    
+    # Look for element not clickable/interactable errors
+    not_clickable_match = re.search(r'element \("([^"]+)"\).*not clickable', desc_lower)
+    if not_clickable_match:
+        selector = not_clickable_match.group(1)
+        element_name = selector.replace('~sdet-', '').replace('~', '')[:20]
+        return f"Element '{element_name}' not clickable"
+    
+    # Look for "Can't call" errors with method and selector
+    cant_call_match = re.search(r"can't call (\w+) on element with selector.*?contains\(@text[^\"]*\"([^\"]+)\"", desc_lower)
+    if cant_call_match:
+        method = cant_call_match.group(1)
+        text_content = cant_call_match.group(2)[:30]
+        return f"Can't {method} element with text '{text_content}'"
+    
+    # Look for generic "Can't call" errors
+    cant_call_generic = re.search(r"can't call (\w+) on element", desc_lower)
+    if cant_call_generic:
+        method = cant_call_generic.group(1)
+        return f"Can't {method} element"
+    
+    # Look for AssertionError with more context
+    if 'assertionerror' in desc_lower:
+        # Try to find what was being verified
+        verify_match = re.search(r'at \w*\.(\w*verify\w*)', desc_lower)
+        if verify_match:
+            verify_method = verify_match.group(1)
+            # Clean up method name
+            clean_method = re.sub(r'verify|page|success|trx', '', verify_method).strip()
+            if clean_method:
+                return f"Assertion failed: {clean_method[:20]}"
+        
+        # Look for expected vs actual values
+        expected_match = re.search(r'expected.*?(\w+).*?actual.*?(\w+)', desc_lower)
+        if expected_match:
+            expected = expected_match.group(1)
+            actual = expected_match.group(2)
+            return f"Expected '{expected}' but got '{actual}'"
+        
+        return "Assertion failed"
+    
+    # Look for common automation error patterns
+    error_patterns = [
+        (r'timeout.*waiting.*element', 'Element timeout'),
+        (r'element.*not.*found', 'Element not found'),
+        (r'no.*such.*element', 'Element not found'),
+        (r'stale.*element', 'Stale element'),
+        (r'element.*not.*visible', 'Element not visible'),
+        (r'connection.*refused', 'Connection refused'),
+        (r'network.*error', 'Network error'),
+        (r'null.*pointer', 'Null pointer'),
+        (r'index.*out.*of.*bounds', 'Index out of bounds'),
+        (r'session.*not.*found', 'Session expired'),
+        (r'webdriver.*exception', 'WebDriver error'),
+        (r'screenshot.*failed', 'Screenshot failed'),
+        (r'page.*not.*loaded', 'Page load failed'),
+        (r'certificate.*error', 'Certificate error'),
+        (r'permission.*denied', 'Permission denied'),
+        (r'file.*not.*found', 'File not found'),
+        (r'invalid.*selector', 'Invalid selector'),
+        (r'function timed out', 'Function timeout'),
+        (r'scenario skipped', 'Test skipped'),
+    ]
+    
+    # Check for specific error patterns
+    for pattern, summary in error_patterns:
+        if re.search(pattern, desc_lower):
+            return summary
+    
+    # Look for exception types
+    exception_match = re.search(r'([A-Za-z0-9_]+(?:Exception|Error))', desc)
+    if exception_match:
+        exception_name = exception_match.group(1)
+        # Simplify common exception names
+        if 'TimeoutException' in exception_name:
+            return 'Timeout error'
+        elif 'NoSuchElementException' in exception_name:
+            return 'Element not found'
+        elif 'ElementNotInteractableException' in exception_name:
+            return 'Element not clickable'
+        elif 'StaleElementReferenceException' in exception_name:
+            return 'Stale element'
+        elif 'WebDriverException' in exception_name:
+            return 'WebDriver error'
+        else:
+            return exception_name.replace('Exception', ' error').replace('Error', ' error')
+    
+    # Look for "failed" keyword with context
+    failed_match = re.search(r'failed\s+(?:to\s+)?([a-zA-Z\s]{1,30})', desc_lower)
+    if failed_match:
+        context = failed_match.group(1).strip()
+        return f"Failed to {context[:25]}"
+    
+    # If no specific pattern found, try to get first meaningful line
+    lines = desc.strip().split('\n')
+    for line in lines:
+        line = line.strip()
+        if line and len(line) > 10:  # Skip very short lines
+            # Take up to 6 words or 60 characters
+            words = line.split()[:6]
+            summary = ' '.join(words)
+            if len(summary) > 60:
+                summary = summary[:57] + '...'
+            return summary
+    
+    return "Unknown error"
+
 # Function to extract test case properties from name
 def extract_test_properties(name, ntc_id=None):
     if not name:
-        return [""] * 8  # Return empty strings for all properties
+        return [""] * 9  # Return empty strings for all properties including Error Summary
     
     # Initialize default values
     properties = {
@@ -65,7 +192,7 @@ def extract_test_properties(name, ntc_id=None):
         properties['Tribe Name'] = match.group(1).strip()
     else:
         # fallback: try to get before last '('
-        match2 = re.search(r'-\s*([^-()]+)\s*\(', archive_val)
+        match2 = re.search(r'-\s*([^-()]+)\s*\(', name)
         if match2:
             properties['Tribe Name'] = match2.group(1).strip()
     
@@ -164,6 +291,14 @@ if __name__ == "__main__":
                             properties = extract_test_properties(incomplete_row[1])
                             incomplete_row.extend(properties)
                         
+                        # Extract error summary from description field (index 5)
+                        error_summary = ""
+                        if len(incomplete_row) > 4 and len(incomplete_row) > 5 and incomplete_row[5]:
+                            status = incomplete_row[4].lower() if incomplete_row[4] else ''
+                            if status and status not in ['passed', 'pass', 'success', 'successful']:
+                                error_summary = extract_error_summary(incomplete_row[5])
+                        incomplete_row.append(error_summary)
+                        
                         cleaned_rows.append(incomplete_row)
                         incomplete_row = []
                     
@@ -182,7 +317,13 @@ if __name__ == "__main__":
                     
                     # Extract properties from the Name field (index 1)
                     properties = extract_test_properties(row[1])
-                    new_row = row + properties
+                    # Extract error summary from description field (index 5) only if status indicates failure
+                    error_summary = ""
+                    if len(row) > 4 and len(row) > 5 and row[5]:
+                        status = row[4].lower() if row[4] else ''
+                        if status and status not in ['passed', 'pass', 'success', 'successful']:
+                            error_summary = extract_error_summary(row[5])
+                    new_row = row + properties + [error_summary]
                     
                     # This is a complete row, add directly to cleaned rows
                     if len(row) == 8:
@@ -210,6 +351,15 @@ if __name__ == "__main__":
                 if len(incomplete_row) <= 8:  # Only extract if properties haven't been added yet
                     properties = extract_test_properties(incomplete_row[1])
                     incomplete_row.extend(properties)
+                
+                # Extract error summary from description field (index 5) if not already added
+                if len(incomplete_row) <= len(headers) + len(NEW_HEADERS) - 1:  # If error summary not added yet
+                    error_summary = ""
+                    if len(incomplete_row) > 4 and len(incomplete_row) > 5 and incomplete_row[5]:
+                        status = incomplete_row[4].lower() if incomplete_row[4] else ''
+                        if status and status not in ['passed', 'pass', 'success', 'successful']:
+                            error_summary = extract_error_summary(incomplete_row[5])
+                    incomplete_row.append(error_summary)
                 
                 cleaned_rows.append(incomplete_row)
         

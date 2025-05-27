@@ -8,7 +8,7 @@ import re
 import csv
 import sys
 from datetime import datetime
-from preserve_history import extract_test_properties, clean_description
+from preserve_history import extract_test_properties, clean_description, extract_error_summary
 
 try:
     import tkinter as tk
@@ -23,7 +23,7 @@ MD_HEADERS = [
     'Device', 'OS', 'App', 'Phone Number', 'Location', 'Step', 'Error',
     'Jenkins Build Number', 'Jenkins URL', 'Triggered by', 'Tested by', 'Type Testing',
     'App Version', 'Tribe Short', 'Squad Name', 'OS Name', 'Tribe Name',
-    'Test Environment', 'Platform', 'Test Case ID', 'Source File', 'Description',
+    'Test Environment', 'Platform', 'Test Case ID', 'Error Summary', 'Source File', 'Description',
     'Index'
 ]
 
@@ -153,10 +153,20 @@ def parse_md_entry_block(entry, is_main, main_name, main_url, main_id, source_fi
     name_props = extract_test_properties(parse_source)
     for i, h in enumerate(['App Version', 'Tribe Short', 'Squad Name', 'OS Name', 'Tribe Name', 'Test Environment', 'Platform', 'Test Case ID']):
         data[h] = name_props[i]
+    
     # Parse description fields
     desc_fields = parse_description_fields(data['Description'])
     for k in desc_fields:
         data[k] = desc_fields[k]
+    
+    # Extract error summary from Error field or Description only if status indicates failure
+    status = data.get('Status', '').lower()
+    if status and status not in ['passed', 'pass', 'success', 'successful']:
+        error_text = data.get('Error', '') or data.get('Description', '')
+        data['Error Summary'] = extract_error_summary(error_text)
+    else:
+        data['Error Summary'] = ''
+    
     data['Description'] = clean_description(data['Description'])
     # Index will be set later
     return [data[h] for h in MD_HEADERS]
@@ -228,12 +238,12 @@ def process_md_folder(folder_path):
     from dateutil.parser import parse as dtparse
     def get_key(row):
         # Test Case ID, Name, History Date
-        return (row[22], row[1], row[3])
+        return (row[23], row[1], row[3])
     all_rows.sort(key=get_key)
     last_case = None
     idx = 1
     for row in all_rows:
-        case_id = row[22]
+        case_id = row[23]
         name = row[1]
         if last_case != (case_id, name):
             idx = 1
