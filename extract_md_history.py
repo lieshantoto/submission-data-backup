@@ -253,13 +253,91 @@ def process_md_folder(folder_path):
     processed_rows.extend(all_rows)
     output_file = 'historical_data_from_md_import.csv'
     output_file_with_date = f'historical_data_from_md_import_{datetime.now().strftime("%Y%m%d")}.csv'
+    
+    # Write CSV files
     with open(output_file, 'w', newline='', encoding='utf-8') as outfile:
         writer = csv.writer(outfile)
         writer.writerows(processed_rows)
     with open(output_file_with_date, 'w', newline='', encoding='utf-8') as outfile:
         writer = csv.writer(outfile)
         writer.writerows(processed_rows)
+    
+    # Create TXT output files with human-readable format
+    txt_output_file = output_file.replace('.csv', '.txt')
+    txt_output_file_with_date = output_file_with_date.replace('.csv', '.txt')
+    
+    def write_txt_output(filename, rows):
+        with open(filename, 'w', encoding='utf-8') as txtfile:
+            txtfile.write("=" * 80 + "\n")
+            txtfile.write("MARKDOWN TEST CASE DATA EXTRACTION SUMMARY\n")
+            txtfile.write("=" * 80 + "\n\n")
+            txtfile.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            txtfile.write(f"Total Records: {len(rows)-1}\n")
+            txtfile.write(f"Source Folder: {folder_path}\n\n")
+            
+            # Group by Test Case ID for better organization
+            headers = rows[0]
+            data_rows = rows[1:]
+            
+            # Group records by Test Case ID
+            grouped_records = {}
+            for row in data_rows:
+                test_case_id = row[23] if len(row) > 23 and row[23] else 'Unknown'
+                if test_case_id not in grouped_records:
+                    grouped_records[test_case_id] = []
+                grouped_records[test_case_id].append(row)
+            
+            for test_case_id, records in grouped_records.items():
+                txtfile.write(f"TEST CASE: {test_case_id}\n")
+                txtfile.write("=" * 60 + "\n")
+                
+                for i, row in enumerate(records, 1):
+                    txtfile.write(f"\nExecution #{i}\n")
+                    txtfile.write("-" * 30 + "\n")
+                    
+                    # Key information mapping to MD_HEADERS indices
+                    key_fields = [
+                        (0, 'ID'), (1, 'Name'), (4, 'Status'), (3, 'History Date'),
+                        (17, 'App Version'), (23, 'Test Case ID'), (24, 'Error Summary'),
+                        (25, 'Source File')
+                    ]
+                    
+                    for idx, field_name in key_fields:
+                        if idx < len(row) and row[idx]:
+                            txtfile.write(f"{field_name}: {row[idx]}\n")
+                    
+                    # Technical details
+                    tech_fields = [
+                        (18, 'Tribe Short'), (19, 'Squad Name'), (20, 'OS Name'),
+                        (22, 'Platform'), (21, 'Test Environment'), (15, 'Tested by'),
+                        (16, 'Type Testing')
+                    ]
+                    
+                    txtfile.write("\nTechnical Details:\n")
+                    for idx, field_name in tech_fields:
+                        if idx < len(row) and row[idx]:
+                            txtfile.write(f"  {field_name}: {row[idx]}\n")
+                    
+                    # Archive URL if available
+                    if len(row) > 2 and row[2]:
+                        txtfile.write(f"\nArchive URL: {row[2]}\n")
+                    
+                    # Description preview (first 200 chars)
+                    if len(row) > 26 and row[26]:
+                        desc_preview = row[26][:200].replace('\n', ' ').strip()
+                        if len(row[26]) > 200:
+                            desc_preview += "..."
+                        txtfile.write(f"\nDescription: {desc_preview}\n")
+                    
+                    txtfile.write("\n" + "-" * 60 + "\n")
+                
+                txtfile.write("\n" + "=" * 80 + "\n\n")
+    
+    write_txt_output(txt_output_file, processed_rows)
+    write_txt_output(txt_output_file_with_date, processed_rows)
+    
     print(f"MD extraction complete. {len(processed_rows)-1} records written to {output_file} and {output_file_with_date}")
+    print(f"TXT output saved to {txt_output_file} and {txt_output_file_with_date}")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

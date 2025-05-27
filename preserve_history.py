@@ -373,6 +373,58 @@ if __name__ == "__main__":
             writer = csv.writer(outfile)
             writer.writerows(cleaned_rows)
         
+        # Create TXT output files with human-readable format
+        txt_output_file = output_file.replace('.csv', '.txt')
+        txt_output_file_with_date = output_file_with_date.replace('.csv', '.txt')
+        
+        def write_txt_output(filename, rows):
+            with open(filename, 'w', encoding='utf-8') as txtfile:
+                txtfile.write("=" * 80 + "\n")
+                txtfile.write("NOTION TEST CASE DATA PROCESSING SUMMARY\n")
+                txtfile.write("=" * 80 + "\n\n")
+                txtfile.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                txtfile.write(f"Total Records: {len(rows)-1}\n")
+                txtfile.write(f"Source: {input_file}\n\n")
+                
+                # Skip header row for processing
+                data_rows = rows[1:]
+                
+                for i, row in enumerate(data_rows, 1):
+                    txtfile.write(f"Record #{i}\n")
+                    txtfile.write("-" * 40 + "\n")
+                    
+                    # Map columns to headers
+                    headers = rows[0]  # First row contains headers
+                    
+                    # Key information
+                    for j, header in enumerate(headers):
+                        if j < len(row) and row[j]:
+                            if header in ['ID', 'Name', 'Status', 'App Version', 'Test Case ID', 'Error Summary']:
+                                txtfile.write(f"{header}: {row[j]}\n")
+                    
+                    # Technical details
+                    txtfile.write("\nTechnical Details:\n")
+                    for j, header in enumerate(headers):
+                        if j < len(row) and row[j]:
+                            if header in ['Tribe Short', 'Squad Name', 'OS Name', 'Platform', 'Test Environment']:
+                                txtfile.write(f"  {header}: {row[j]}\n")
+                    
+                    # URL if available
+                    if len(row) > 2 and row[2]:
+                        txtfile.write(f"\nArchive URL: {row[2]}\n")
+                    
+                    # Description preview (first 200 chars)
+                    if len(row) > 5 and row[5]:
+                        desc_preview = row[5][:200].replace('\n', ' ').strip()
+                        if len(row[5]) > 200:
+                            desc_preview += "..."
+                        txtfile.write(f"\nDescription: {desc_preview}\n")
+                    
+                    txtfile.write("\n" + "=" * 80 + "\n\n")
+        
+        write_txt_output(txt_output_file, cleaned_rows)
+        write_txt_output(txt_output_file_with_date, cleaned_rows)
+        
         # Count unique test case IDs for informational purposes
         unique_ids = set()
         for row in cleaned_rows[1:]:  # Skip header row
@@ -382,6 +434,7 @@ if __name__ == "__main__":
         print(f"Data cleaned successfully.")
         print(f"Total records: {len(cleaned_rows)-1}, Unique test cases: {len(unique_ids)}")
         print(f"Output saved to {output_file} and {output_file_with_date}")
+        print(f"TXT output saved to {txt_output_file} and {txt_output_file_with_date}")
         print(f"Original file size: {os.path.getsize(input_file):,} bytes, New file size: {os.path.getsize(output_file):,} bytes")
         print(f"Size change: {((os.path.getsize(output_file)/os.path.getsize(input_file))*100)-100:.2f}%")
 
