@@ -10,13 +10,6 @@ import sys
 from datetime import datetime
 from preserve_history import extract_test_properties, clean_description, extract_error_summary
 
-try:
-    import tkinter as tk
-    from tkinter import filedialog
-except ImportError:
-    tk = None
-    filedialog = None
-
 # Update headers to include NTC-ID
 MD_HEADERS = [
     'ID', 'Name', 'Archive Testcase URL', 'History Date', 'Status',
@@ -551,31 +544,53 @@ def process_md_folder(folder_path, args=None):
 if __name__ == "__main__":
     # Parse command line arguments for optional flags
     import argparse
+    import importlib.util
     
     parser = argparse.ArgumentParser(description='Process MD files into structured data')
     parser.add_argument('folder', nargs='?', help='Folder containing MD files')
     parser.add_argument('--separate-csv', action='store_true', help='Create separate CSV files for each OS')
     parser.add_argument('--separate-txt', action='store_true', help='Create separate TXT files for each OS (default: false)')
     parser.add_argument('--no-txt', action='store_true', help='Skip TXT file generation completely')
+    parser.add_argument('--web', action='store_true', help='Use web-based UI for folder selection and options')
     
     args = parser.parse_args()
     
+    # Check if web interface is requested
+    if args.web or (not args.folder and len(sys.argv) <= 1):
+        # Try the new Streamlit-style UI first, then fall back to other UIs
+        ui_modules = ['md_streamlit_ui', 'md_extract_web_ui', 'md_web_ui']
+        
+        for ui_module_name in ui_modules:
+            web_ui_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f'{ui_module_name}.py')
+            if os.path.exists(web_ui_path):
+                try:
+                    spec = importlib.util.spec_from_file_location(ui_module_name, web_ui_path)
+                    web_ui = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(web_ui)
+                    
+                    # Launch web interface
+                    print(f"Starting web interface ({ui_module_name})...")
+                    web_ui.start_server()
+                    sys.exit(0)
+                except Exception as e:
+                    print(f"Error starting {ui_module_name}: {e}")
+                    continue
+        
+        print("Error: No web UI module found.")
+        print("Please ensure one of the following files exists:")
+        for ui_module_name in ui_modules:
+            print(f"  - {ui_module_name}.py")
+        sys.exit(1)
+    
+    # Standard command-line mode
     if args.folder:
         folder = args.folder
     elif len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
         # Legacy support: first non-flag argument is folder
         folder = sys.argv[1]
     else:
-        if tk is None or filedialog is None:
-            print("tkinter is required for GUI folder selection.")
-            sys.exit(1)
-        root = tk.Tk()
-        root.withdraw()
-        folder = filedialog.askdirectory(title="Select Folder Containing MD Files")
-        root.destroy()
-        if not folder:
-            print("No folder selected.")
-            sys.exit(1)
+        print("No folder specified. Use --web for web interface or provide folder path.")
+        sys.exit(1)
     
     if not os.path.isdir(folder):
         print("Invalid folder path.")

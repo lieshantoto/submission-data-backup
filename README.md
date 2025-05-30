@@ -1,8 +1,54 @@
-# Notion Test Case Data Cleaner
+# Test Case Data Processing Tools
 
-This repository contains two different approaches for cleaning test case data exported from Notion databases:
+This repository contains tools for processing test case data from different sources:
 
-## 1. Normalized Data Approach (`clean_notion_data.py`)
+## 🔧 Tools Available
+
+### 1. MD File Processor (Latest)
+**Extract and analyze test case data from Markdown files**
+
+A modern web-based tool for processing test case data from Markdown files in the "History Archive Testcases" folder format.
+
+#### Features:
+- 🌐 **Modern Web Interface**: Clean, responsive UI inspired by Streamlit
+- 📁 **Folder Selection**: Easy drag-and-drop or browse folder selection
+- ⚙️ **Flexible Options**: 
+  - Create separate CSV files for each OS
+  - Generate separate TXT files for each OS  
+  - Skip TXT generation entirely
+- 📊 **Real-time Processing**: See progress and results immediately
+- 📋 **Multiple Output Formats**: CSV and TXT with detailed summaries
+
+#### Quick Start:
+```bash
+# Easy launcher (recommended)
+python3 launch_web_ui.py
+
+# OR run directly
+python3 extract_md_history.py --web
+
+# OR run the standalone web UI
+python3 md_streamlit_ui.py
+```
+
+#### Command Line Usage:
+```bash
+# Process MD files from a folder
+python3 extract_md_history.py "path/to/md/folder"
+
+# With options
+python3 extract_md_history.py "path/to/md/folder" --separate-csv --separate-txt
+
+# Skip TXT files
+python3 extract_md_history.py "path/to/md/folder" --no-txt
+```
+
+### 2. Notion Data Cleaner
+**Clean and process test case data exported from Notion databases**
+
+This tool provides two different approaches for cleaning test case data exported from Notion databases:
+
+#### 2a. Normalized Data Approach (`clean_notion_data.py`)
 
 This script normalizes the test data by:
 
@@ -13,7 +59,7 @@ This script normalizes the test data by:
 5. Extracting test case metadata into separate properties
 6. Reducing file size significantly (approximately 60% size reduction)
 
-## 2. Historical Data Preservation Approach (`preserve_history.py`)
+#### 2b. Historical Data Preservation Approach (`preserve_history.py`)
 
 This script preserves all historical test runs while still cleaning the data:
 
@@ -24,11 +70,41 @@ This script preserves all historical test runs while still cleaning the data:
 5. Only cleans up formatting issues without removing content
 6. Keeps file size similar to the original
 
+## 🚀 Usage Guide
+
+### Option 1: MD File Processor Web Interface (Recommended for MD files)
+
+1. **Launch the web interface:**
+   ```bash
+   python3 launch_web_ui.py
+   ```
+
+2. **Use the web interface:**
+   - Click "Browse" to select your folder containing MD files
+   - Choose processing options (separate files, output formats)
+   - Click "Process Files" and wait for completion
+   - View generated files and detailed output
+
+### Option 2: Notion Data Cleaner Web Interface (For Notion CSV exports)
+
+1. **Run the web UI script:**
+   ```bash
+   python3 web_ui_cleaner.py
+   ```
+
+2. **Process your data:**
+   - Select your Notion CSV export file
+   - Choose between "Preserve Historical Data" or "Normalize Data" options
+   - Process the file and view results immediately
+   - Download the processed files
+
 ## Usage
 
 There are four ways to use these scripts/interfaces:
 
-### 1. Using the Web-Based Interface (Recommended)
+### Option 3: Traditional Notion Data Cleaner Interfaces
+
+#### 3a. Web-Based Interface (Notion CSV files)
 
 1. Run the web UI script:
    ```
@@ -44,7 +120,7 @@ There are four ways to use these scripts/interfaces:
    - Automatically download the processed files with just one click
    - Files are available in both regular and date-stamped versions
 
-### 2. Using the Graphical User Interface (GUI)
+#### 3b. Graphical User Interface (GUI)
 
 1. Run the UI script:
    ```
