@@ -7,6 +7,9 @@ import os
 import re
 import csv
 import sys
+import argparse
+import importlib.util
+import dateutil.parser
 from datetime import datetime
 from preserve_history import extract_test_properties, clean_description, extract_error_summary
 
@@ -557,8 +560,8 @@ if __name__ == "__main__":
     
     # Check if web interface is requested
     if args.web or (not args.folder and len(sys.argv) <= 1):
-        # Try the new Streamlit-style UI first, then fall back to other UIs
-        ui_modules = ['md_streamlit_ui', 'md_extract_web_ui', 'md_web_ui']
+        # Use the primary Streamlit-style UI
+        ui_modules = ['md_streamlit_ui']
         
         for ui_module_name in ui_modules:
             web_ui_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f'{ui_module_name}.py')
