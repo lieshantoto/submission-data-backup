@@ -255,8 +255,14 @@ def process_md_folder(folder_path, args=None):
         row[-1] = idx
         idx += 1
     processed_rows.extend(all_rows)
-    output_file = 'historical_data_from_md_import.csv'
-    output_file_with_date = f'historical_data_from_md_import_{datetime.now().strftime("%Y%m%d")}.csv'
+    
+    # Create output directory
+    output_dir = 'md_extraction_results'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Define output files with directory path
+    output_file = os.path.join(output_dir, 'historical_data_from_md_import.csv')
+    output_file_with_date = os.path.join(output_dir, f'historical_data_from_md_import_{datetime.now().strftime("%Y%m%d")}.csv')
     
     # Write main CSV files
     with open(output_file, 'w', newline='', encoding='utf-8') as outfile:
@@ -520,29 +526,32 @@ def process_md_folder(folder_path, args=None):
             txt_files_created = [txt_output_file, txt_output_file_with_date]
             
     # Output report
-    print(f"MD extraction complete. {len(processed_rows)-1} records written to {output_file} and {output_file_with_date}")
+    print(f"📁 Output directory: {output_dir}")
+    print(f"✅ MD extraction complete. {len(processed_rows)-1} records written to:")
+    print(f"   📄 {os.path.basename(output_file)}")
+    print(f"   📄 {os.path.basename(output_file_with_date)}")
     
     # Print CSV file details if separate CSV files were created
     if args.separate_csv:
         unique_csv_files = len(csv_files_created) // 2  # Divide by 2 because we create both current and dated versions
-        print(f"CSV files created: {unique_csv_files} OS-specific files")
+        print(f"📊 CSV files created: {unique_csv_files} OS-specific files")
         for csv_file in csv_files_created[:3]:  # Show first 3 files
             if not csv_file.endswith(f"{datetime.now().strftime('%Y%m%d')}.csv"):  # Don't show dated versions in log
-                print(f"  - {csv_file}")
+                print(f"   📄 {os.path.basename(csv_file)}")
         if unique_csv_files > 3:
-            print(f"  ... and {unique_csv_files-3} more OS-specific CSV files")
+            print(f"   ... and {unique_csv_files-3} more OS-specific CSV files")
             
     # Print TXT file details if TXT files were generated
     if not args.no_txt:
         if args.separate_txt:
-            print(f"TXT files created: {len(txt_files_created)} OS-specific files + summary")
-            print(f"Summary files: {summary_files[0]} and {summary_files[1]}")
+            print(f"📝 TXT files created: {len(txt_files_created)} OS-specific files + summary")
+            print(f"📋 Summary files: {os.path.basename(summary_files[0])} and {os.path.basename(summary_files[1])}")
             for txt_file in txt_files_created[:3]:  # Show first 3 files
-                print(f"  - {txt_file}")
+                print(f"   📄 {os.path.basename(txt_file)}")
             if len(txt_files_created) > 3:
-                print(f"  ... and {len(txt_files_created)-3} more OS-specific TXT files")
+                print(f"   ... and {len(txt_files_created)-3} more OS-specific TXT files")
         else:
-            print(f"TXT files created: {txt_files_created[0]} and {txt_files_created[1]}")
+            print(f"📝 TXT files created: {os.path.basename(txt_files_created[0])} and {os.path.basename(txt_files_created[1])}")
 
 if __name__ == "__main__":
     # Parse command line arguments for optional flags
