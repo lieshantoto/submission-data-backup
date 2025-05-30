@@ -5,7 +5,9 @@ A modern tool for processing test case data from Markdown files in the "History 
 ## ✨ Features
 
 - 🌐 **Modern Web Interface**: Clean, responsive UI for easy file processing
-- 📁 **Folder Selection**: Drag-and-drop or browse folder selection
+- 📁 **Smart Folder Selection**: 
+  - Drag-and-drop your Notion export folder - automatically finds .md files anywhere in the folder structure
+  - Browse button for precise folder selection with complex paths
 - ⚙️ **Flexible Options**: 
   - Create separate CSV files for each OS
   - Generate separate TXT files for each OS  

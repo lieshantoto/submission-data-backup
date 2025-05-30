@@ -511,7 +511,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                     <div class="icon-large">📁</div>
                     <h3>Drag & Drop Folder Here</h3>
                     <p>Or click anywhere in this area to browse</p>
-                    <p><small>Drop a folder containing .md files from anywhere on your Mac</small></p>
+                    <p><small>Drop your Notion export folder - the tool will automatically find .md files</small></p>
                     <p><small><strong>For complex paths with spaces:</strong> Use Browse button for better reliability</small></p>
                 </div>
             </div>
@@ -638,7 +638,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                             // Show success feedback
                             status.className = 'status success';
                             status.style.display = 'flex';
-                            statusText.textContent = `Folder "${entry.name}" ready for processing (searching system locations...)`;
+                            statusText.textContent = `Folder "${entry.name}" ready - will search for .md files automatically`;
                             setTimeout(() => {
                                 status.style.display = 'none';
                             }, 3000);
@@ -1053,9 +1053,9 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                         
                         print(f"DEBUG: Searching for folder '{folder_name}' in common locations...")
                         
-                        # Use a more comprehensive search for complex folder names
-                        def find_folder_recursive(search_root, target_name, max_depth=5):
-                            """Recursively search for a folder by name with depth limit"""
+                        # Search for the folder and then find MD files within it
+                        def find_folder_with_md_files(search_root, target_name, max_depth=5):
+                            """Recursively search for a folder by name and check if it contains MD files"""
                             found_paths = []
                             try:
                                 for root, dirs, files in os.walk(search_root):
@@ -1067,9 +1067,12 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                                     
                                     # Check if target folder name matches exactly
                                     if target_name in dirs:
-                                        found_path = os.path.join(root, target_name)
-                                        if os.path.isdir(found_path):
-                                            found_paths.append(found_path)
+                                        potential_path = os.path.join(root, target_name)
+                                        if os.path.isdir(potential_path):
+                                            # Check if this folder or any subfolder contains .md files
+                                            md_folder = find_md_files_folder(potential_path)
+                                            if md_folder:
+                                                found_paths.append(md_folder)
                                             
                                     # For very deep folders, limit the search to avoid timeouts
                                     if depth >= max_depth:
@@ -1078,6 +1081,26 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                             except (PermissionError, OSError):
                                 pass
                             return found_paths
+                        
+                        def find_md_files_folder(root_path):
+                            """Find the folder containing .md files within a given root path"""
+                            try:
+                                # Check if root path directly contains .md files
+                                md_files = [f for f in os.listdir(root_path) if f.lower().endswith('.md')]
+                                if md_files:
+                                    print(f"DEBUG: Found {len(md_files)} .md files in: {root_path}")
+                                    return root_path
+                                
+                                # Recursively search for .md files in subdirectories
+                                for root, dirs, files in os.walk(root_path):
+                                    md_files = [f for f in files if f.lower().endswith('.md')]
+                                    if md_files:
+                                        print(f"DEBUG: Found {len(md_files)} .md files in: {root}")
+                                        return root
+                                        
+                            except (PermissionError, OSError):
+                                pass
+                            return None
                         
                         all_found_paths = []
                         for location in search_locations:
@@ -1088,12 +1111,15 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                                 # Direct check in the location first
                                 potential = os.path.join(location, folder_name)
                                 if os.path.isdir(potential):
-                                    folder_path = potential
-                                    print(f"DEBUG: Found folder at: {folder_path}")
-                                    break
+                                    # Check if this folder contains .md files (directly or in subfolders)
+                                    md_folder = find_md_files_folder(potential)
+                                    if md_folder:
+                                        folder_path = md_folder
+                                        print(f"DEBUG: Found folder with .md files at: {folder_path}")
+                                        break
                                 
                                 # Recursive search with limited depth
-                                found_paths = find_folder_recursive(location, folder_name, max_depth=4)
+                                found_paths = find_folder_with_md_files(location, folder_name, max_depth=4)
                                 if found_paths:
                                     all_found_paths.extend(found_paths)
                                     
@@ -1104,14 +1130,14 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                         # If we found multiple matches, prefer the first one (could be improved with user selection)
                         if not folder_path and all_found_paths:
                             folder_path = all_found_paths[0]
-                            print(f"DEBUG: Found folder at: {folder_path}")
+                            print(f"DEBUG: Found folder with .md files at: {folder_path}")
                             if len(all_found_paths) > 1:
                                 print(f"DEBUG: Found {len(all_found_paths)} possible matches, using first one")
                         
                         if not folder_path or not os.path.isdir(folder_path):
                             self.send_json_response({
                                 'success': False,
-                                'message': f'Could not find folder "{folder_name}" in common locations (Downloads, Desktop, Documents, etc.). This may be due to the complex folder path with spaces and special characters. Please use the Browse button to select the folder with its full path instead of drag & drop.'
+                                'message': f'Could not find folder "{folder_name}" with .md files in common locations (Downloads, Desktop, Documents, etc.). The folder was found but may not contain .md files, or the path is too complex. Please use the Browse button to manually navigate to the folder containing .md files.'
                             })
                             return
             
