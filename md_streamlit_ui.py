@@ -512,7 +512,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                     <h3>Drag & Drop Folder Here</h3>
                     <p>Or click anywhere in this area to browse</p>
                     <p><small>Drop a folder containing .md files from anywhere on your Mac</small></p>
-                    <p><small><strong>Supported locations:</strong> Downloads, Desktop, Documents, and more</small></p>
+                    <p><small><strong>For complex paths with spaces:</strong> Use Browse button for better reliability</small></p>
                 </div>
             </div>
             
@@ -990,8 +990,13 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             no_txt = data.get('noTxt', False)
             passrate_analysis = data.get('passrateAnalysis', True)  # Default to True
             
-            # Handle drag and drop folder names that don't have full paths
-            if folder_path.startswith('📁 ') or not os.path.isabs(folder_path):
+            # Handle different types of folder input
+            if os.path.isabs(folder_path) and os.path.isdir(folder_path):
+                # Direct absolute path from browse button - use as-is
+                print(f"DEBUG: Using absolute path directly: {folder_path}")
+                pass  # folder_path is already correct
+            elif folder_path.startswith('📁 ') or not os.path.isabs(folder_path):
+                # Handle drag and drop folder names that don't have full paths
                 # Extract folder name from the formatted display string
                 if folder_path.startswith('📁 '):
                     if '(drag & drop folder)' in folder_path:
@@ -1048,41 +1053,65 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                         
                         print(f"DEBUG: Searching for folder '{folder_name}' in common locations...")
                         
+                        # Use a more comprehensive search for complex folder names
+                        def find_folder_recursive(search_root, target_name, max_depth=5):
+                            """Recursively search for a folder by name with depth limit"""
+                            found_paths = []
+                            try:
+                                for root, dirs, files in os.walk(search_root):
+                                    # Calculate current depth
+                                    depth = root.replace(search_root, '').count(os.sep)
+                                    if depth > max_depth:
+                                        dirs.clear()  # Don't descend further
+                                        continue
+                                    
+                                    # Check if target folder name matches exactly
+                                    if target_name in dirs:
+                                        found_path = os.path.join(root, target_name)
+                                        if os.path.isdir(found_path):
+                                            found_paths.append(found_path)
+                                            
+                                    # For very deep folders, limit the search to avoid timeouts
+                                    if depth >= max_depth:
+                                        dirs.clear()
+                                        
+                            except (PermissionError, OSError):
+                                pass
+                            return found_paths
+                        
+                        all_found_paths = []
                         for location in search_locations:
                             if not os.path.exists(location):
                                 continue
                                 
                             try:
-                                # Direct check in the location
+                                # Direct check in the location first
                                 potential = os.path.join(location, folder_name)
                                 if os.path.isdir(potential):
                                     folder_path = potential
                                     print(f"DEBUG: Found folder at: {folder_path}")
                                     break
                                 
-                                # Search in subdirectories (limit depth for performance)
-                                for root, dirs, files in os.walk(location):
-                                    # Limit search depth to avoid long searches
-                                    depth = root.replace(location, '').count(os.sep)
-                                    if depth > 3:  # Don't go too deep
-                                        continue
-                                    
-                                    if folder_name in dirs:
-                                        folder_path = os.path.join(root, folder_name)
-                                        print(f"DEBUG: Found folder at: {folder_path}")
-                                        break
-                                
-                                if folder_path and os.path.isdir(folder_path):
-                                    break
+                                # Recursive search with limited depth
+                                found_paths = find_folder_recursive(location, folder_name, max_depth=4)
+                                if found_paths:
+                                    all_found_paths.extend(found_paths)
                                     
                             except (PermissionError, OSError):
                                 # Skip locations we can't access
                                 continue
                         
+                        # If we found multiple matches, prefer the first one (could be improved with user selection)
+                        if not folder_path and all_found_paths:
+                            folder_path = all_found_paths[0]
+                            print(f"DEBUG: Found folder at: {folder_path}")
+                            if len(all_found_paths) > 1:
+                                print(f"DEBUG: Found {len(all_found_paths)} possible matches, using first one")
+                        
                         if not folder_path or not os.path.isdir(folder_path):
                             self.send_json_response({
                                 'success': False,
-                                'message': f'Could not find folder "{folder_name}" in common locations (Downloads, Desktop, Documents, etc.). Please use the Browse button to select the folder with its full path.'
+                                'message': f'Could not find folder "{folder_name}" in common locations (Downloads, Desktop, Documents, etc.). This may be due to the complex folder path with spaces and special characters. Please use the Browse button to select the folder with its full path instead of drag & drop.'
                             })
                             return
             
