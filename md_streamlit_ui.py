@@ -29,6 +29,8 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(self.get_main_page().encode())
         elif self.path == '/browse-folder':
             self.handle_browse_folder()
+        elif self.path.startswith('/download/'):
+            self.handle_download()
         else:
             self.send_response(404)
             self.end_headers()
@@ -277,6 +279,17 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             margin-top: 1rem;
         }
 
+        .process-section {
+            text-align: center;
+            padding: 1.5rem 0;
+        }
+
+        .process-section .btn-primary {
+            font-size: 1.1rem;
+            padding: 1rem 2rem;
+            min-width: 200px;
+        }
+
         .checkbox-option {
             display: flex;
             align-items: center;
@@ -372,14 +385,69 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         }
 
         .file-list li {
-            padding: 0.5rem 0;
+            padding: 0.75rem 0;
             border-bottom: 1px solid var(--border);
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
         }
 
         .file-list li:last-child {
             border-bottom: none;
+        }
+
+        .file-info {
+            flex: 1;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+        }
+
+        .download-btn {
+            padding: 0.5rem 1rem;
+            background: var(--secondary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-decoration: none;
+        }
+
+        .download-btn:hover {
+            background: #3bb7b1;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(78, 205, 196, 0.3);
+        }
+
+        .download-all-btn {
+            margin-top: 1rem;
+            padding: 0.75rem 1.5rem;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .download-all-btn:hover {
+            background: #ff5252;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
         }
 
         .console-output {
@@ -434,8 +502,8 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                     <div class="icon-large">📁</div>
                     <h3>Drag & Drop Folder Here</h3>
                     <p>Or click anywhere in this area to browse</p>
-                    <p><small>Drop a folder containing .md files to get started</small></p>
-                    <p><small><strong>Tip:</strong> On macOS, drag folders from Finder</small></p>
+                    <p><small>Drop a folder containing .md files from anywhere on your Mac</small></p>
+                    <p><small><strong>Supported locations:</strong> Downloads, Desktop, Documents, and more</small></p>
                 </div>
             </div>
             
@@ -462,20 +530,22 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                     <label for="separateCsv">Create separate CSV files for each OS</label>
                 </div>
                 <div class="checkbox-option">
-                    <input type="checkbox" id="separateTxt" name="separateTxt">
-                    <label for="separateTxt">Create separate TXT files for each OS</label>
+                    <input type="checkbox" id="generateTxt" name="generateTxt">
+                    <label for="generateTxt">Generate TXT files (summary format)</label>
                 </div>
                 <div class="checkbox-option">
-                    <input type="checkbox" id="noTxt" name="noTxt">
-                    <label for="noTxt">Skip TXT file generation</label>
+                    <input type="checkbox" id="separateTxt" name="separateTxt" disabled>
+                    <label for="separateTxt">Create separate TXT files for each OS</label>
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <button class="btn btn-primary" id="processBtn" disabled>
-                <span>🚀</span> Process Files
-            </button>
+            <div class="process-section">
+                <button class="btn btn-primary" id="processBtn" disabled>
+                    <span>🚀</span> Process Files
+                </button>
+            </div>
             
             <div id="status" class="status">
                 <div class="spinner"></div>
@@ -497,8 +567,8 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         const browseBtn = document.getElementById('browseBtn');
         const processBtn = document.getElementById('processBtn');
         const separateCsvCheck = document.getElementById('separateCsv');
+        const generateTxtCheck = document.getElementById('generateTxt');
         const separateTxtCheck = document.getElementById('separateTxt');
-        const noTxtCheck = document.getElementById('noTxt');
         const status = document.getElementById('status');
         const statusText = document.getElementById('statusText');
         const results = document.getElementById('results');
@@ -554,7 +624,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                             // Show success feedback
                             status.className = 'status success';
                             status.style.display = 'flex';
-                            statusText.textContent = `Folder "${entry.name}" ready for processing`;
+                            statusText.textContent = `Folder "${entry.name}" ready for processing (searching system locations...)`;
                             setTimeout(() => {
                                 status.style.display = 'none';
                             }, 3000);
@@ -637,33 +707,52 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         });
 
         // Checkbox interactions
-        noTxtCheck.addEventListener('change', () => {
-            if (noTxtCheck.checked) {
+        generateTxtCheck.addEventListener('change', () => {
+            if (generateTxtCheck.checked) {
+                separateTxtCheck.disabled = false;
+            } else {
                 separateTxtCheck.checked = false;
                 separateTxtCheck.disabled = true;
-            } else {
-                separateTxtCheck.disabled = false;
             }
         });
 
         // Process button functionality
         processBtn.addEventListener('click', async () => {
-            if (!selectedFolder) return;
+            console.log('Process button clicked');
+            console.log('Selected folder:', selectedFolder);
+            
+            if (!selectedFolder) {
+                alert('Please select a folder first');
+                return;
+            }
 
             // Show processing status
             status.className = 'status processing';
+            status.style.display = 'flex';
             statusText.textContent = 'Processing MD files...';
             results.style.display = 'none';
             processBtn.disabled = true;
+            
+            // Clear previous results
+            fileList.innerHTML = '';
+            consoleOutput.textContent = '';
+            
+            // Remove any existing download all buttons
+            const existingDownloadAll = results.querySelector('.download-all-btn');
+            if (existingDownloadAll && existingDownloadAll.parentElement) {
+                existingDownloadAll.parentElement.remove();
+            }
 
             const options = {
                 folderPath: selectedFolder,
                 separateCsv: separateCsvCheck.checked,
                 separateTxt: separateTxtCheck.checked,
-                noTxt: noTxtCheck.checked
+                noTxt: !generateTxtCheck.checked  // Inverse logic: if generateTxt is unchecked, skip TXT files
             };
 
             try {
+                console.log('Sending request with options:', options);
+                
                 const response = await fetch('/process', {
                     method: 'POST',
                     headers: {
@@ -672,7 +761,10 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                     body: JSON.stringify(options)
                 });
 
+                console.log('Response status:', response.status);
                 const data = await response.json();
+                console.log('Response data:', data);
+                
                 processBtn.disabled = false;
 
                 if (data.success) {
@@ -686,9 +778,23 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                     if (data.files && data.files.length > 0) {
                         data.files.forEach(file => {
                             const li = document.createElement('li');
-                            li.textContent = file;
+                            li.innerHTML = `
+                                <span class="file-info">${file}</span>
+                                <a href="/download/${file}" class="download-btn" download="${file}">
+                                    📥 Download
+                                </a>
+                            `;
                             fileList.appendChild(li);
                         });
+                        
+                        // Add download all button
+                        const downloadAllContainer = document.createElement('div');
+                        downloadAllContainer.innerHTML = `
+                            <button class="download-all-btn" onclick="downloadAllFiles([${data.files.map(f => `'${f}'`).join(',')}])">
+                                📦 Download All Files
+                            </button>
+                        `;
+                        results.appendChild(downloadAllContainer);
                     }
                     
                     if (data.output) {
@@ -709,6 +815,35 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                 statusText.textContent = 'Error: ' + error.message;
             }
         });
+        
+        // Download all files function
+        function downloadAllFiles(fileNames) {
+            if (!fileNames || fileNames.length === 0) {
+                alert('No files to download');
+                return;
+            }
+            
+            // Download each file with a small delay to avoid overwhelming the browser
+            fileNames.forEach((fileName, index) => {
+                setTimeout(() => {
+                    const link = document.createElement('a');
+                    link.href = `/download/${fileName}`;
+                    link.download = fileName;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }, index * 500); // 500ms delay between downloads
+            });
+            
+            // Show feedback
+            status.className = 'status success';
+            status.style.display = 'flex';
+            statusText.textContent = `Downloading ${fileNames.length} files...`;
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
     </script>
 </body>
 </html>"""
@@ -779,6 +914,54 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_json_response({'error': str(e)})
 
+    def handle_download(self):
+        """Handle file download requests"""
+        try:
+            # Extract filename from path
+            filename = self.path[10:]  # Remove '/download/' prefix
+            
+            # Security check: ensure filename doesn't contain path traversal
+            if '..' in filename or '/' in filename or '\\' in filename:
+                self.send_response(403)
+                self.end_headers()
+                return
+            
+            # Look for file in md_extraction_results directory
+            results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'md_extraction_results')
+            file_path = os.path.join(results_dir, filename)
+            
+            if not os.path.exists(file_path) or not os.path.isfile(file_path):
+                self.send_response(404)
+                self.end_headers()
+                return
+            
+            # Determine content type based on file extension
+            if filename.endswith('.csv'):
+                content_type = 'text/csv'
+            elif filename.endswith('.txt'):
+                content_type = 'text/plain'
+            else:
+                content_type = 'application/octet-stream'
+            
+            # Send file
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+            self.send_header('Content-Length', str(os.path.getsize(file_path)))
+            self.end_headers()
+            
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(f"Error downloading file: {str(e)}".encode())
+
     def handle_process_files(self):
         """Handle file processing request"""
         try:
@@ -792,60 +975,100 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             no_txt = data.get('noTxt', False)
             
             # Handle drag and drop folder names that don't have full paths
-            if folder_path.startswith('📁 ') and '(drag & drop folder)' in folder_path:
+            if folder_path.startswith('📁 ') or not os.path.isabs(folder_path):
                 # Extract folder name from the formatted display string
-                folder_name = folder_path.replace('📁 ', '').replace(' (drag & drop folder)', '').strip()
+                if folder_path.startswith('📁 '):
+                    if '(drag & drop folder)' in folder_path:
+                        folder_name = folder_path.replace('📁 ', '').replace(' (drag & drop folder)', '').strip()
+                    elif 'files dropped)' in folder_path:
+                        folder_info = folder_path.replace('📁 ', '').strip()
+                        folder_name = folder_info.split(' (')[0]
+                    else:
+                        folder_name = folder_path.replace('📁 ', '').strip()
+                else:
+                    folder_name = folder_path
                 
-                # Look for a folder with this name in the current directory
+                # Look for a folder with this name in the current directory first
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 potential_path = os.path.join(current_dir, folder_name)
                 
+                print(f"DEBUG: Looking for folder '{folder_name}'")
+                print(f"DEBUG: Current dir: {current_dir}")
+                print(f"DEBUG: Potential path: {potential_path}")
+                print(f"DEBUG: Path exists: {os.path.exists(potential_path)}")
+                print(f"DEBUG: Is directory: {os.path.isdir(potential_path)}")
+                
                 if os.path.isdir(potential_path):
                     folder_path = potential_path
+                    print(f"DEBUG: Found folder at: {folder_path}")
                 else:
-                    # Search for folder in subdirectories
+                    # Search for folder in subdirectories (but limit depth to avoid long searches)
                     found_path = None
+                    search_depth = 0
+                    max_depth = 2
+                    
                     for root, dirs, files in os.walk(current_dir):
+                        # Calculate current depth
+                        current_depth = root.replace(current_dir, '').count(os.sep)
+                        if current_depth > max_depth:
+                            continue
+                            
                         if folder_name in dirs:
                             found_path = os.path.join(root, folder_name)
+                            print(f"DEBUG: Found folder in subdirectory: {found_path}")
                             break
                     
                     if found_path:
                         folder_path = found_path
                     else:
-                        self.send_json_response({
-                            'success': False,
-                            'message': f'Could not find folder "{folder_name}". Please use the Browse button to select the folder.'
-                        })
-                        return
-            
-            elif folder_path.startswith('📁 ') and 'files dropped)' in folder_path:
-                # Handle multiple files dropped case
-                folder_info = folder_path.replace('📁 ', '').strip()
-                folder_name = folder_info.split(' (')[0]
-                
-                # Look for the folder
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                potential_path = os.path.join(current_dir, folder_name)
-                
-                if os.path.isdir(potential_path):
-                    folder_path = potential_path
-                else:
-                    # Search for folder in subdirectories
-                    found_path = None
-                    for root, dirs, files in os.walk(current_dir):
-                        if folder_name in dirs:
-                            found_path = os.path.join(root, folder_name)
-                            break
-                    
-                    if found_path:
-                        folder_path = found_path
-                    else:
-                        self.send_json_response({
-                            'success': False,
-                            'message': f'Could not find folder "{folder_name}". Please use the Browse button to select the folder.'
-                        })
-                        return
+                        # Search in common locations on Mac
+                        search_locations = [
+                            os.path.expanduser("~/Downloads"),
+                            os.path.expanduser("~/Desktop"),
+                            os.path.expanduser("~/Documents"),
+                            "/Users",  # Search in all user directories
+                            "/Volumes",  # External drives
+                        ]
+                        
+                        print(f"DEBUG: Searching for folder '{folder_name}' in common locations...")
+                        
+                        for location in search_locations:
+                            if not os.path.exists(location):
+                                continue
+                                
+                            try:
+                                # Direct check in the location
+                                potential = os.path.join(location, folder_name)
+                                if os.path.isdir(potential):
+                                    folder_path = potential
+                                    print(f"DEBUG: Found folder at: {folder_path}")
+                                    break
+                                
+                                # Search in subdirectories (limit depth for performance)
+                                for root, dirs, files in os.walk(location):
+                                    # Limit search depth to avoid long searches
+                                    depth = root.replace(location, '').count(os.sep)
+                                    if depth > 3:  # Don't go too deep
+                                        continue
+                                    
+                                    if folder_name in dirs:
+                                        folder_path = os.path.join(root, folder_name)
+                                        print(f"DEBUG: Found folder at: {folder_path}")
+                                        break
+                                
+                                if folder_path and os.path.isdir(folder_path):
+                                    break
+                                    
+                            except (PermissionError, OSError):
+                                # Skip locations we can't access
+                                continue
+                        
+                        if not folder_path or not os.path.isdir(folder_path):
+                            self.send_json_response({
+                                'success': False,
+                                'message': f'Could not find folder "{folder_name}" in common locations (Downloads, Desktop, Documents, etc.). Please use the Browse button to select the folder with its full path.'
+                            })
+                            return
             
             if not folder_path or not os.path.isdir(folder_path):
                 self.send_json_response({
@@ -896,33 +1119,47 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         """Parse the output text to extract created file names"""
         files_created = []
         
-        # Extract main CSV files
-        csv_matches = re.findall(r'written to ([\w\.-]+\.csv) and ([\w\.-]+\.csv)', output_text)
-        if csv_matches:
-            for match in csv_matches:
+        # Extract main CSV files from lines like "📄 historical_data_from_md_import.csv"
+        csv_matches = re.findall(r'📄 ([\w\.-_]+\.csv)', output_text)
+        files_created.extend(csv_matches)
+        
+        # Extract TXT files from lines like "📝 TXT files created: historical_data_from_md_import.txt and historical_data_from_md_import_20250530.txt"
+        txt_matches = re.findall(r'📝 TXT files created: ([\w\.-_]+\.txt) and ([\w\.-_]+\.txt)', output_text)
+        if txt_matches:
+            for match in txt_matches:
                 files_created.append(match[0])
                 files_created.append(match[1])
         
-        # Extract separate CSV files
-        separate_csv_matches = re.findall(r'  - ([\w\.-_]+\.csv)', output_text)
-        files_created.extend(separate_csv_matches)
+        # Also search for any file pattern that looks like our output files
+        all_file_matches = re.findall(r'(historical_data_from_md_import[^,\s]*\.(?:csv|txt))', output_text)
+        files_created.extend(all_file_matches)
         
-        # Extract TXT files
-        txt_files_matches = re.findall(r'TXT files created: ([\w\.-_]+\.txt) and ([\w\.-_]+\.txt)', output_text)
-        if txt_files_matches:
-            for match in txt_files_matches:
-                files_created.append(match[0])
-                files_created.append(match[1])
-        
-        # Extract summary files
-        summary_matches = re.findall(r'Summary files: ([\w\.-_]+\.txt) and ([\w\.-_]+\.txt)', output_text)
-        if summary_matches:
-            for match in summary_matches:
-                files_created.append(match[0])
-                files_created.append(match[1])
+        # Always include actual files from the directory to ensure we don't miss any
+        try:
+            results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'md_extraction_results')
+            if os.path.exists(results_dir):
+                all_files = os.listdir(results_dir)
+                # Get all CSV and TXT files that match our naming pattern
+                import time
+                current_time = time.time()
+                
+                for filename in all_files:
+                    if (filename.endswith(('.csv', '.txt')) and 
+                        filename.startswith('historical_data_from_md_import') and 
+                        not filename.startswith('.')):
+                        file_path = os.path.join(results_dir, filename)
+                        if os.path.isfile(file_path):
+                            # Include recent files (last 10 minutes) or if no files found in output
+                            file_time = os.path.getmtime(file_path)
+                            if not files_created or (current_time - file_time < 600):  # 10 minutes
+                                files_created.append(filename)
+        except Exception as e:
+            print(f"DEBUG: Error listing directory files: {e}")
         
         # Remove duplicates and sort
-        return sorted(list(set(files_created)))
+        unique_files = sorted(list(set(files_created)))
+        print(f"DEBUG: Found files: {unique_files}")
+        return unique_files
 
     def send_json_response(self, data):
         """Send a JSON response"""
