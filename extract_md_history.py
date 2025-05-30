@@ -449,6 +449,141 @@ def parse_single_md_file(md_file_path):
             rows.append(main_row)
     return rows
 
+def generate_passrate_analysis(processed_rows, output_dir):
+    """Generate submission pass rate analysis CSV similar to FS Submission Passrate format"""
+    if len(processed_rows) <= 1:  # Only headers
+        return None
+    
+    headers = processed_rows[0]
+    data_rows = processed_rows[1:]
+    
+    # Find column indices
+    name_idx = headers.index('Name') if 'Name' in headers else 1
+    status_idx = headers.index('Status') if 'Status' in headers else 4
+    history_date_idx = headers.index('History Date') if 'History Date' in headers else 3
+    os_name_idx = headers.index('OS Name') if 'OS Name' in headers else 20
+    platform_idx = headers.index('Platform') if 'Platform' in headers else 23
+    app_version_idx = headers.index('App Version') if 'App Version' in headers else 17
+    tribe_short_idx = headers.index('Tribe Short') if 'Tribe Short' in headers else 18
+    squad_name_idx = headers.index('Squad Name') if 'Squad Name' in headers else 19
+    tribe_name_idx = headers.index('Tribe Name') if 'Tribe Name' in headers else 21
+    test_env_idx = headers.index('Test Environment') if 'Test Environment' in headers else 22
+    archive_url_idx = headers.index('Archive Testcase URL') if 'Archive Testcase URL' in headers else 2
+    test_case_id_idx = headers.index('Test Case ID') if 'Test Case ID' in headers else 24
+    
+    # Group data by submission configuration
+    from collections import defaultdict
+    
+    # Group by: App Version + Tribe Short + OS Name + Tribe Name + Squad Name + Test Environment + Platform
+    submissions = defaultdict(lambda: defaultdict(list))
+    
+    for row in data_rows:
+        if len(row) <= max(name_idx, status_idx, history_date_idx, os_name_idx, platform_idx, test_case_id_idx):
+            continue
+            
+        # Extract key fields
+        app_version = row[app_version_idx] if len(row) > app_version_idx and row[app_version_idx] else "Unknown"
+        tribe_short = row[tribe_short_idx] if len(row) > tribe_short_idx and row[tribe_short_idx] else "Unknown"
+        squad_name = row[squad_name_idx] if len(row) > squad_name_idx and row[squad_name_idx] else "Unknown"
+        os_name = row[os_name_idx] if len(row) > os_name_idx and row[os_name_idx] else "Unknown"
+        tribe_name = row[tribe_name_idx] if len(row) > tribe_name_idx and row[tribe_name_idx] else "Unknown"
+        test_env = row[test_env_idx] if len(row) > test_env_idx and row[test_env_idx] else "Unknown"
+        platform = row[platform_idx] if len(row) > platform_idx and row[platform_idx] else "Unknown"
+        archive_url = row[archive_url_idx] if len(row) > archive_url_idx and row[archive_url_idx] else ""
+        test_case_id = row[test_case_id_idx] if len(row) > test_case_id_idx and row[test_case_id_idx] else ""
+        
+        # Create submission key
+        submission_key = f"Submission {app_version} - {tribe_short} {squad_name} - OS {os_name} - {tribe_name} - {squad_name} ({test_env} {platform})"
+        
+        # Parse date
+        try:
+            date_str = row[history_date_idx] if len(row) > history_date_idx and row[history_date_idx] else ""
+            if date_str:
+                # Use existing dateutil.parser since it's already imported in the module
+                parsed_date = dateutil.parser.parse(date_str)
+                submission_day = parsed_date.strftime("%B %d, %Y")  # Format: "May 19, 2025"
+            else:
+                submission_day = "Unknown"
+        except:
+            submission_day = "Unknown"
+        
+        # Determine if test passed
+        status = row[status_idx] if len(row) > status_idx and row[status_idx] else ""
+        is_passed = status.lower() in ['passed', 'pass', 'success', 'successful']
+        
+        # Store test result with NTC-ID
+        submissions[submission_key][submission_day].append({
+            'passed': is_passed,
+            'status': status,
+            'archive_url': archive_url,
+            'os_name': os_name,
+            'platform': platform,
+            'test_case_id': test_case_id,
+            'app_version': app_version
+        })
+    
+    # Calculate total unique NTC-IDs per submission across all days
+    submission_total_ntc_ids = {}
+    for submission_key, daily_data in submissions.items():
+        all_ntc_ids = set()
+        for submission_day, tests in daily_data.items():
+            for test in tests:
+                if test['test_case_id']:
+                    all_ntc_ids.add(test['test_case_id'])
+        submission_total_ntc_ids[submission_key] = len(all_ntc_ids)
+    
+    # Generate pass rate CSV
+    passrate_rows = [
+        ['Name', 'Total TC', 'Total Pass by Day', 'Pass Rate', 'Submission Day', 'OS Name', 'Platform', 'App Version']
+    ]
+    
+    for submission_key, daily_data in submissions.items():
+        total_tc = submission_total_ntc_ids.get(submission_key, 0)
+        
+        # Sort days chronologically for cumulative counting
+        sorted_days = sorted(daily_data.items(), key=lambda x: dateutil.parser.parse(x[0]) if x[0] != "Unknown" else datetime.min)
+        
+        # Track cumulative passed NTC-IDs across all days
+        cumulative_passed_ntc_ids = set()
+        
+        for submission_day, tests in sorted_days:
+            # Add all NTC-IDs that passed on this day to cumulative set
+            for test in tests:
+                if test['passed'] and test['test_case_id']:
+                    cumulative_passed_ntc_ids.add(test['test_case_id'])
+            
+            # Total pass is cumulative count of unique NTC-IDs that have passed so far
+            total_pass = len(cumulative_passed_ntc_ids)
+            pass_rate = total_pass / total_tc if total_tc > 0 else 0
+            
+            # Get representative data (first test)
+            first_test = tests[0] if tests else {}
+            os_name = first_test.get('os_name', 'Unknown')
+            platform = first_test.get('platform', 'Unknown')
+            app_version = first_test.get('app_version', 'Unknown')
+            
+            passrate_rows.append([
+                submission_key,
+                str(total_tc),
+                str(total_pass),
+                str(pass_rate),
+                submission_day,
+                os_name,
+                platform,
+                app_version
+            ])
+    
+    # Sort by submission name and date
+    passrate_rows[1:] = sorted(passrate_rows[1:], key=lambda x: (x[0], x[5]))
+    
+    # Write pass rate CSV
+    passrate_file = os.path.join(output_dir, f'submission_passrate_analysis_{datetime.now().strftime("%Y%m%d")}.csv')
+    with open(passrate_file, 'w', newline='', encoding='utf-8') as outfile:
+        writer = csv.writer(outfile, quoting=csv.QUOTE_MINIMAL)
+        writer.writerows(passrate_rows)
+    
+    return passrate_file
+
 def process_md_folder(folder_path, args=None):
     # Use default behavior if args is not provided
     if args is None:
@@ -456,6 +591,8 @@ def process_md_folder(folder_path, args=None):
             separate_csv = False
             separate_txt = False
             no_txt = False
+            passrate = True
+            no_passrate = False
         args = DefaultArgs()
     
     processed_rows = [MD_HEADERS]
@@ -494,6 +631,9 @@ def process_md_folder(folder_path, args=None):
     with open(output_file_with_date, 'w', newline='', encoding='utf-8') as outfile:
         writer = csv.writer(outfile)
         writer.writerows(processed_rows)
+    
+    # Generate pass rate analysis CSV (removed duplicate call)
+    # This will be handled later in the correct conditional block
     
     # Function to create separate CSV files for each OS (only timestamped)
     def write_separate_os_csv_files(rows, base_filename_dated):
@@ -736,11 +876,22 @@ def process_md_folder(folder_path, args=None):
             txt_output_file_with_date = output_file_with_date.replace('.csv', '.txt')
             write_combined_txt_output(txt_output_file_with_date, processed_rows)
             txt_files_created = [txt_output_file_with_date]
-            
+    
+    # Generate pass rate analysis file if requested
+    passrate_file = None
+    if args.passrate and not args.no_passrate:
+        passrate_file = generate_passrate_analysis(processed_rows, output_dir)
+        if passrate_file:
+            print(f"📊 Pass rate analysis CSV created: {os.path.basename(passrate_file)}")
+
     # Output report
     print(f"📁 Output directory: {output_dir}")
     print(f"✅ MD extraction complete. {len(processed_rows)-1} records written to:")
     print(f"   📄 {os.path.basename(output_file_with_date)}")
+    
+    # Print pass rate analysis file if generated
+    if passrate_file:
+        print(f"   📊 {os.path.basename(passrate_file)}")
     
     # Print CSV file details if separate CSV files were created
     if args.separate_csv:
@@ -773,6 +924,8 @@ if __name__ == "__main__":
     parser.add_argument('--separate-csv', action='store_true', help='Create separate CSV files for each OS')
     parser.add_argument('--separate-txt', action='store_true', help='Create separate TXT files for each OS (default: false)')
     parser.add_argument('--no-txt', action='store_true', help='Skip TXT file generation completely')
+    parser.add_argument('--passrate', action='store_true', help='Generate submission pass rate analysis CSV (default: true)', default=True)
+    parser.add_argument('--no-passrate', action='store_true', help='Skip pass rate analysis generation')
     parser.add_argument('--web', action='store_true', help='Use web-based UI for folder selection and options')
     
     args = parser.parse_args()

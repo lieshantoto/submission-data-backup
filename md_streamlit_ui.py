@@ -546,6 +546,10 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                     <input type="checkbox" id="separateTxt" name="separateTxt" disabled>
                     <label for="separateTxt">Create separate TXT files for each OS</label>
                 </div>
+                <div class="checkbox-option">
+                    <input type="checkbox" id="passrateAnalysis" name="passrateAnalysis" checked>
+                    <label for="passrateAnalysis">Generate pass rate analysis CSV</label>
+                </div>
             </div>
         </div>
 
@@ -578,6 +582,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         const separateCsvCheck = document.getElementById('separateCsv');
         const generateTxtCheck = document.getElementById('generateTxt');
         const separateTxtCheck = document.getElementById('separateTxt');
+        const passrateAnalysisCheck = document.getElementById('passrateAnalysis');
         const status = document.getElementById('status');
         const statusText = document.getElementById('statusText');
         const results = document.getElementById('results');
@@ -756,7 +761,8 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                 folderPath: selectedFolder,
                 separateCsv: separateCsvCheck.checked,
                 separateTxt: separateTxtCheck.checked,
-                noTxt: !generateTxtCheck.checked  // Inverse logic: if generateTxt is unchecked, skip TXT files
+                noTxt: !generateTxtCheck.checked,  // Inverse logic: if generateTxt is unchecked, skip TXT files
+                passrateAnalysis: passrateAnalysisCheck.checked
             };
 
             try {
@@ -982,6 +988,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             separate_csv = data.get('separateCsv', False)
             separate_txt = data.get('separateTxt', False)
             no_txt = data.get('noTxt', False)
+            passrate_analysis = data.get('passrateAnalysis', True)  # Default to True
             
             # Handle drag and drop folder names that don't have full paths
             if folder_path.startswith('📁 ') or not os.path.isabs(folder_path):
@@ -1095,6 +1102,8 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                 cmd.append('--separate-txt')
             if no_txt:
                 cmd.append('--no-txt')
+            if not passrate_analysis:
+                cmd.append('--no-passrate')
             
             # Run the command
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)))
@@ -1132,6 +1141,10 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         csv_matches = re.findall(r'📄 ([\w\.-_]+\.csv)', output_text)
         files_created.extend(csv_matches)
         
+        # Extract pass rate analysis files from lines like "📊 Pass rate analysis CSV created: submission_passrate_analysis_20250530.csv"
+        passrate_matches = re.findall(r'📊 Pass rate analysis CSV created: ([\w\.-_]+\.csv)', output_text)
+        files_created.extend(passrate_matches)
+        
         # Extract TXT files from various output patterns
         # Single file: "📝 TXT file created: historical_data_from_md_import_20250530.txt"
         single_txt_matches = re.findall(r'📝 TXT file created: ([\w\.-_]+\.txt)', output_text)
@@ -1141,7 +1154,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         # In this case, we rely on directory scanning below
         
         # Also search for any file pattern that looks like our output files
-        all_file_matches = re.findall(r'(historical_data_from_md_import[^,\s]*\.(?:csv|txt))', output_text)
+        all_file_matches = re.findall(r'((?:historical_data_from_md_import|submission_passrate_analysis)[^,\s]*\.(?:csv|txt))', output_text)
         files_created.extend(all_file_matches)
         
         # Always include actual files from the directory to ensure we don't miss any
@@ -1155,7 +1168,8 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
                 
                 for filename in all_files:
                     if (filename.endswith(('.csv', '.txt')) and 
-                        filename.startswith('historical_data_from_md_import') and 
+                        (filename.startswith('historical_data_from_md_import') or 
+                         filename.startswith('submission_passrate_analysis')) and 
                         not filename.startswith('.')):
                         file_path = os.path.join(results_dir, filename)
                         if os.path.isfile(file_path):
