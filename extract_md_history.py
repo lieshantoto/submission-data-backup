@@ -11,7 +11,6 @@ import argparse
 import importlib.util
 import dateutil.parser
 from datetime import datetime
-from preserve_history import extract_test_properties, clean_description, extract_error_summary
 
 # Update headers to include NTC-ID
 MD_HEADERS = [
@@ -22,6 +21,234 @@ MD_HEADERS = [
     'Test Environment', 'Platform', 'Test Case ID', 'Error Summary', 'Source File', 'Description',
     'Index'
 ]
+
+def extract_error_summary(desc):
+    """Extract a short error summary from the description"""
+    if not desc:
+        return ""
+    
+    # Convert to lowercase for easier matching
+    desc_lower = desc.lower()
+    
+    # Look for specific WebDriver element errors with selectors
+    element_selector_match = re.search(r'element \("([^"]+)"\) still not displayed after \d+ms', desc)
+    if element_selector_match:
+        selector = element_selector_match.group(1)
+        # Extract meaningful part of selector
+        if 'sdet-' in selector:
+            element_name = selector.replace('~sdet-', '').replace('sdet-', '')
+        elif '~' in selector:
+            element_name = selector.replace('~', '')
+        else:
+            element_name = selector[:20]
+        return f"Element '{element_name}' not displayed"
+    
+    # Look for element not clickable/interactable errors
+    not_clickable_match = re.search(r'element \("([^"]+)"\).*not clickable', desc_lower)
+    if not_clickable_match:
+        selector = not_clickable_match.group(1)
+        element_name = selector.replace('~sdet-', '').replace('~', '')[:20]
+        return f"Element '{element_name}' not clickable"
+    
+    # Look for "Can't call" errors with method and selector
+    cant_call_match = re.search(r"can't call (\w+) on element with selector.*?contains\(@text[^\"]*\"([^\"]+)\"", desc_lower)
+    if cant_call_match:
+        method = cant_call_match.group(1)
+        text_content = cant_call_match.group(2)[:30]
+        return f"Can't {method} element with text '{text_content}'"
+    
+    # Look for generic "Can't call" errors
+    cant_call_generic = re.search(r"can't call (\w+) on element", desc_lower)
+    if cant_call_generic:
+        method = cant_call_generic.group(1)
+        return f"Can't {method} element"
+    
+    # Look for AssertionError with more context
+    if 'assertionerror' in desc_lower:
+        # Try to find what was being verified
+        verify_match = re.search(r'at \w*\.(\w*verify\w*)', desc_lower)
+        if verify_match:
+            verify_method = verify_match.group(1)
+            # Clean up method name
+            clean_method = re.sub(r'verify|page|success|trx', '', verify_method).strip()
+            if clean_method:
+                return f"Assertion failed: {clean_method[:20]}"
+        
+        # Look for expected vs actual values
+        expected_match = re.search(r'expected.*?(\w+).*?actual.*?(\w+)', desc_lower)
+        if expected_match:
+            expected = expected_match.group(1)
+            actual = expected_match.group(2)
+            return f"Expected '{expected}' but got '{actual}'"
+        
+        return "Assertion failed"
+    
+    # Look for common automation error patterns
+    error_patterns = [
+        (r'timeout.*waiting.*element', 'Element timeout'),
+        (r'element.*not.*found', 'Element not found'),
+        (r'no.*such.*element', 'Element not found'),
+        (r'element.*not.*clickable', 'Element not clickable'),
+        (r'element.*not.*interactable', 'Element not interactable'),
+        (r'stale.*element', 'Stale element'),
+        (r'element.*not.*visible', 'Element not visible'),
+        (r'connection.*refused', 'Connection refused'),
+        (r'network.*error', 'Network error'),
+        (r'null.*pointer', 'Null pointer'),
+        (r'index.*out.*of.*bounds', 'Index out of bounds'),
+        (r'session.*not.*found', 'Session expired'),
+        (r'webdriver.*exception', 'WebDriver error'),
+        (r'screenshot.*failed', 'Screenshot failed'),
+        (r'page.*not.*loaded', 'Page load failed'),
+        (r'certificate.*error', 'Certificate error'),
+        (r'permission.*denied', 'Permission denied'),
+        (r'file.*not.*found', 'File not found'),
+        (r'invalid.*selector', 'Invalid selector'),
+        (r'function timed out', 'Function timeout'),
+        (r'scenario skipped', 'Test skipped'),
+    ]
+    
+    # Check for specific error patterns
+    for pattern, summary in error_patterns:
+        if re.search(pattern, desc_lower):
+            return summary
+    
+    # Look for exception types
+    exception_match = re.search(r'([A-Za-z0-9_]+(?:Exception|Error))', desc)
+    if exception_match:
+        exception_name = exception_match.group(1)
+        # Simplify common exception names
+        if 'TimeoutException' in exception_name:
+            return 'Timeout error'
+        elif 'NoSuchElementException' in exception_name:
+            return 'Element not found'
+        elif 'ElementNotInteractableException' in exception_name:
+            return 'Element not clickable'
+        elif 'StaleElementReferenceException' in exception_name:
+            return 'Stale element'
+        elif 'WebDriverException' in exception_name:
+            return 'WebDriver error'
+        else:
+            return exception_name.replace('Exception', ' error').replace('Error', ' error')
+    
+    # Look for "failed" keyword with context
+    failed_match = re.search(r'failed\s+(?:to\s+)?([a-zA-Z\s]{1,30})', desc_lower)
+    if failed_match:
+        context = failed_match.group(1).strip()
+        return f"Failed to {context[:25]}"
+    
+    # If no specific pattern found, try to get first meaningful line
+    lines = desc.strip().split('\n')
+    for line in lines:
+        line = line.strip()
+        if line and len(line) > 10:  # Skip very short lines
+            # Take up to 6 words or 60 characters
+            words = line.split()[:6]
+            summary = ' '.join(words)
+            if len(summary) > 60:
+                summary = summary[:57] + '...'
+            return summary
+    
+    return "Unknown error"
+
+def extract_test_properties(name, ntc_id=None):
+    """Extract test case properties from name"""
+    if not name:
+        return [""] * 8  # Return empty strings for all properties
+    
+    # Initialize default values
+    properties = {
+        'App Version': "",
+        'Tribe Short': "",
+        'Squad Name': "",
+        'OS Name': "",
+        'Tribe Name': "",
+        'Test Environment': "",
+        'Platform': "",
+        'Test Case ID': ""
+    }
+    
+    # Extract App Version (e.g., 2.81.0)
+    app_version_match = re.search(r'(\d+\.\d+\.\d+)', name)
+    if app_version_match:
+        properties['App Version'] = app_version_match.group(1)
+    
+    # Extract Tribe Short and Squad Name (e.g., FS Wealth)
+    tribe_squad_match = re.search(r'- ([A-Z]+) ([A-Za-z]+) -', name)
+    if tribe_squad_match:
+        properties['Tribe Short'] = tribe_squad_match.group(1)
+        properties['Squad Name'] = tribe_squad_match.group(2)
+    
+    # Extract OS Name (e.g., DANA CICIL, DANA+ & Reksadana)
+    os_name_match = re.search(r'- OS ([^-]+) -', name)
+    if os_name_match:
+        properties['OS Name'] = os_name_match.group(1).strip()
+    
+    # Extract Tribe Name (e.g., Financial Service)
+    # Use the same logic as extract_tribe_name_from_archive()
+    match = re.search(r'- OS [^-]+ - ([^-]+)', name)
+    if match:
+        properties['Tribe Name'] = match.group(1).strip()
+    else:
+        # fallback: try to get before last '('
+        match2 = re.search(r'-\s*([^-()]+)\s*\(', name)
+        if match2:
+            properties['Tribe Name'] = match2.group(1).strip()
+    
+    # Extract Test Environment and Platform (e.g., SIT, Android) - allow multi-word and flexible spacing
+    env_platform_match = re.search(r'\(([^,]+),\s*([^)]+)\)', name)
+    if env_platform_match:
+        properties['Test Environment'] = env_platform_match.group(1).strip()
+        properties['Platform'] = env_platform_match.group(2).strip()
+    
+    # Extract Test Case Tag and Tag ID combined (e.g., NTC-44378)
+    # Prefer NTC-ID if provided
+    if ntc_id and ntc_id.startswith('NTC-'):
+        properties['Test Case ID'] = ntc_id
+    else:
+        tag_id_match = re.search(r'NTC[ -]+(\d+)', name)
+        if tag_id_match:
+            properties['Test Case ID'] = f"NTC-{tag_id_match.group(1)}"
+        else:
+            # fallback to previous pattern
+            tag_id_match2 = re.search(r'- ([A-Z]+) - (\d+)', name)
+            if tag_id_match2:
+                tag = tag_id_match2.group(1)
+                id_num = tag_id_match2.group(2)
+                properties['Test Case ID'] = f"{tag}-{id_num}"
+    
+    # Return values in the order defined in MD_HEADERS
+    return [
+        properties['App Version'],
+        properties['Tribe Short'],
+        properties['Squad Name'],
+        properties['OS Name'],
+        properties['Tribe Name'],
+        properties['Test Environment'],
+        properties['Platform'],
+        properties['Test Case ID']
+    ]
+
+def clean_description(desc):
+    """Clean description field by removing excess whitespace and formatting"""
+    if not desc:
+        return ""
+    
+    # Remove multiple consecutive newlines
+    desc = re.sub(r'\n\s*\n\s*\n+', '\n\n', desc)
+    
+    # Remove excessive whitespace
+    desc = re.sub(r'[ \t]+', ' ', desc)
+    
+    # Clean up lines
+    lines = desc.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if line:  # Skip empty lines after stripping
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
 
 def extract_tribe_name_from_archive(archive_val):
     # Example: ... - OS Insurance - Financial Service - Wealth (SIT, Android) ...
