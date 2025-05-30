@@ -391,6 +391,7 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             justify-content: space-between;
             align-items: center;
             gap: 1rem;
+            min-height: 48px; /* Ensure consistent height */
         }
 
         .file-list li:last-child {
@@ -402,6 +403,11 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             font-family: 'Monaco', 'Menlo', monospace;
             font-size: 0.9rem;
             color: var(--text-primary);
+            word-break: break-word; /* Break long words */
+            overflow-wrap: break-word; /* Ensure wrapping */
+            line-height: 1.4;
+            min-width: 0; /* Allow flex item to shrink */
+            max-width: calc(100% - 120px); /* Reserve space for download button */
         }
 
         .download-btn {
@@ -418,6 +424,9 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
             align-items: center;
             gap: 0.5rem;
             text-decoration: none;
+            white-space: nowrap; /* Prevent button text from wrapping */
+            flex-shrink: 0; /* Prevent button from shrinking */
+            min-width: 100px; /* Ensure minimum button width */
         }
 
         .download-btn:hover {
@@ -1123,12 +1132,13 @@ class StreamlitStyleHandler(http.server.SimpleHTTPRequestHandler):
         csv_matches = re.findall(r'📄 ([\w\.-_]+\.csv)', output_text)
         files_created.extend(csv_matches)
         
-        # Extract TXT files from lines like "📝 TXT files created: historical_data_from_md_import.txt and historical_data_from_md_import_20250530.txt"
-        txt_matches = re.findall(r'📝 TXT files created: ([\w\.-_]+\.txt) and ([\w\.-_]+\.txt)', output_text)
-        if txt_matches:
-            for match in txt_matches:
-                files_created.append(match[0])
-                files_created.append(match[1])
+        # Extract TXT files from various output patterns
+        # Single file: "📝 TXT file created: historical_data_from_md_import_20250530.txt"
+        single_txt_matches = re.findall(r'📝 TXT file created: ([\w\.-_]+\.txt)', output_text)
+        files_created.extend(single_txt_matches)
+        
+        # Multiple files: "📝 TXT files created: N OS-specific files + summary"
+        # In this case, we rely on directory scanning below
         
         # Also search for any file pattern that looks like our output files
         all_file_matches = re.findall(r'(historical_data_from_md_import[^,\s]*\.(?:csv|txt))', output_text)

@@ -487,20 +487,16 @@ def process_md_folder(folder_path, args=None):
     output_dir = 'md_extraction_results'
     os.makedirs(output_dir, exist_ok=True)
     
-    # Define output files with directory path
-    output_file = os.path.join(output_dir, 'historical_data_from_md_import.csv')
+    # Define output files with directory path (only timestamped version)
     output_file_with_date = os.path.join(output_dir, f'historical_data_from_md_import_{datetime.now().strftime("%Y%m%d")}.csv')
     
-    # Write main CSV files
-    with open(output_file, 'w', newline='', encoding='utf-8') as outfile:
-        writer = csv.writer(outfile)
-        writer.writerows(processed_rows)
+    # Write main CSV file (only timestamped version)
     with open(output_file_with_date, 'w', newline='', encoding='utf-8') as outfile:
         writer = csv.writer(outfile)
         writer.writerows(processed_rows)
     
-    # Function to create separate CSV files for each OS
-    def write_separate_os_csv_files(rows, base_filename, base_filename_dated):
+    # Function to create separate CSV files for each OS (only timestamped)
+    def write_separate_os_csv_files(rows, base_filename_dated):
         headers = rows[0]
         data_rows = rows[1:]
         
@@ -515,21 +511,13 @@ def process_md_folder(folder_path, args=None):
                 os_groups[os_name] = []
             os_groups[os_name].append(row)
         
-        # Create individual CSV files for each OS
+        # Create individual CSV files for each OS (only timestamped versions)
         csv_files_created = []
         for os_name, records in os_groups.items():
             # Create safe filename (replace spaces and special chars)
             safe_os_name = os_name.replace(' ', '_').replace('&', 'and').replace('+', 'Plus')
             
-            # Current version
-            os_csv_file = base_filename.replace('.csv', f'_OS_{safe_os_name}.csv')
-            csv_files_created.append(os_csv_file)
-            with open(os_csv_file, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(headers)  # Write headers
-                writer.writerows(records)  # Write records
-            
-            # Date-stamped version
+            # Only date-stamped version
             os_csv_file_dated = base_filename_dated.replace('.csv', f'_OS_{safe_os_name}.csv')
             csv_files_created.append(os_csv_file_dated)
             with open(os_csv_file_dated, 'w', newline='', encoding='utf-8') as csvfile:
@@ -539,10 +527,10 @@ def process_md_folder(folder_path, args=None):
         
         return csv_files_created
     
-    # Write separate OS CSV files if requested
+    # Write separate OS CSV files if requested (only timestamped)
     csv_files_created = []
     if args.separate_csv:
-        csv_files_created = write_separate_os_csv_files(processed_rows, output_file, output_file_with_date)
+        csv_files_created = write_separate_os_csv_files(processed_rows, output_file_with_date)
     
     # Create separate TXT output files for each OS
     def write_separate_os_txt_files(rows, base_filename):
@@ -660,13 +648,12 @@ def process_md_folder(folder_path, args=None):
     
     if not args.no_txt:
         if args.separate_txt:
-            # Generate separate TXT files for each OS
-            txt_files, summary_file = write_separate_os_txt_files(processed_rows, output_file)
+            # Generate separate TXT files for each OS (only timestamped)
             txt_files_dated, summary_file_dated = write_separate_os_txt_files(processed_rows, output_file_with_date)
-            txt_files_created = txt_files
-            summary_files = [summary_file, summary_file_dated]
+            txt_files_created = txt_files_dated
+            summary_files = [summary_file_dated]
         else:
-            # Generate combined TXT file (if separate_txt is not set)
+            # Generate combined TXT file (only timestamped version)
             def write_combined_txt_output(filename, rows):
                 with open(filename, 'w', encoding='utf-8') as txtfile:
                     txtfile.write("=" * 80 + "\n")
@@ -746,25 +733,21 @@ def process_md_folder(folder_path, args=None):
                         txtfile.write("=" * 80 + "\n\n")
                 return filename
 
-            txt_output_file = output_file.replace('.csv', '.txt')
             txt_output_file_with_date = output_file_with_date.replace('.csv', '.txt')
-            write_combined_txt_output(txt_output_file, processed_rows)
             write_combined_txt_output(txt_output_file_with_date, processed_rows)
-            txt_files_created = [txt_output_file, txt_output_file_with_date]
+            txt_files_created = [txt_output_file_with_date]
             
     # Output report
     print(f"📁 Output directory: {output_dir}")
     print(f"✅ MD extraction complete. {len(processed_rows)-1} records written to:")
-    print(f"   📄 {os.path.basename(output_file)}")
     print(f"   📄 {os.path.basename(output_file_with_date)}")
     
     # Print CSV file details if separate CSV files were created
     if args.separate_csv:
-        unique_csv_files = len(csv_files_created) // 2  # Divide by 2 because we create both current and dated versions
+        unique_csv_files = len(csv_files_created)  # Only timestamped versions now
         print(f"📊 CSV files created: {unique_csv_files} OS-specific files")
         for csv_file in csv_files_created[:3]:  # Show first 3 files
-            if not csv_file.endswith(f"{datetime.now().strftime('%Y%m%d')}.csv"):  # Don't show dated versions in log
-                print(f"   📄 {os.path.basename(csv_file)}")
+            print(f"   📄 {os.path.basename(csv_file)}")
         if unique_csv_files > 3:
             print(f"   ... and {unique_csv_files-3} more OS-specific CSV files")
             
@@ -772,13 +755,13 @@ def process_md_folder(folder_path, args=None):
     if not args.no_txt:
         if args.separate_txt:
             print(f"📝 TXT files created: {len(txt_files_created)} OS-specific files + summary")
-            print(f"📋 Summary files: {os.path.basename(summary_files[0])} and {os.path.basename(summary_files[1])}")
+            print(f"📋 Summary file: {os.path.basename(summary_files[0])}")
             for txt_file in txt_files_created[:3]:  # Show first 3 files
                 print(f"   📄 {os.path.basename(txt_file)}")
             if len(txt_files_created) > 3:
                 print(f"   ... and {len(txt_files_created)-3} more OS-specific TXT files")
         else:
-            print(f"📝 TXT files created: {os.path.basename(txt_files_created[0])} and {os.path.basename(txt_files_created[1])}")
+            print(f"📝 TXT file created: {os.path.basename(txt_files_created[0])}")
 
 if __name__ == "__main__":
     # Parse command line arguments for optional flags
